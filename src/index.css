@@ -1,0 +1,218 @@
+@import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700;9..144,800&family=Inter:wght@300;400;500;600;700&family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500&family=Noto+Sans+Devanagari:wght@500;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Weybre AI design system — courtroom-credible, sober, premium.
+   All colors HSL. Deep navy + ivory + saffron accent. */
+
+@layer base {
+  html,
+  body,
+  #root {
+    overflow-x: hidden;
+    max-width: 100vw;
+  }
+
+  :root {
+    /* Surfaces — pure white base, soft layering */
+    --background: 0 0% 100%;
+    --foreground: 222 20% 14%;          /* deep charcoal, not black */
+
+    --card: 0 0% 100%;
+    --card-foreground: 222 20% 14%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 222 20% 14%;
+
+    /* Primary — deep charcoal for high readability */
+    --primary: 222 22% 16%;
+    --primary-foreground: 0 0% 100%;
+    --primary-glow: 222 18% 28%;
+
+    /* Secondary — very light gray for layered surfaces */
+    --secondary: 220 16% 97%;
+    --secondary-foreground: 222 20% 14%;
+
+    --muted: 220 16% 96%;
+    --muted-foreground: 222 12% 42%;     /* cool gray w/ blue undertone, AA on white */
+
+    /* Accent — soft indigo */
+    --accent: 232 64% 56%;
+    --accent-foreground: 0 0% 100%;
+    --accent-soft: 232 70% 96%;
+
+    --destructive: 0 70% 48%;
+    --destructive-foreground: 0 0% 100%;
+
+    --success: 160 60% 36%;
+    --success-foreground: 0 0% 100%;
+
+    --warning: 32 84% 46%;
+    --warning-foreground: 0 0% 100%;
+
+    --border: 220 14% 92%;
+    --input: 220 14% 92%;
+    --ring: 232 64% 56%;
+
+    --radius: 0.75rem;
+
+    /* Gradients */
+    --gradient-hero: linear-gradient(180deg, hsl(0 0% 100%) 0%, hsl(220 16% 98%) 100%);
+    --gradient-primary: linear-gradient(135deg, hsl(232 64% 56%) 0%, hsl(232 60% 64%) 100%);
+    --gradient-accent: linear-gradient(135deg, hsl(232 64% 56%) 0%, hsl(212 80% 58%) 100%);
+
+    /* Shadows — diffused, premium */
+    --shadow-sm: 0 1px 2px 0 hsl(222 20% 14% / 0.04);
+    --shadow-md: 0 6px 20px -6px hsl(222 20% 14% / 0.08);
+    --shadow-lg: 0 24px 60px -20px hsl(222 20% 14% / 0.14);
+    --shadow-glow: 0 0 0 4px hsl(var(--accent) / 0.10), 0 12px 36px -12px hsl(var(--accent) / 0.25);
+
+    /* Sidebar — light, frosted */
+    --sidebar-background: 0 0% 100%;
+    --sidebar-foreground: 222 20% 22%;
+    --sidebar-primary: 232 64% 56%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 220 16% 96%;
+    --sidebar-accent-foreground: 222 22% 16%;
+    --sidebar-border: 220 14% 92%;
+    --sidebar-ring: 232 64% 56%;
+  }
+
+  .dark {
+    --background: 222 47% 8%;
+    --foreground: 40 30% 94%;
+
+    --card: 222 45% 10%;
+    --card-foreground: 40 30% 94%;
+
+    --popover: 222 45% 10%;
+    --popover-foreground: 40 30% 94%;
+
+    --primary: 40 30% 94%;
+    --primary-foreground: 222 60% 12%;
+    --primary-glow: 40 30% 80%;
+
+    --secondary: 222 35% 16%;
+    --secondary-foreground: 40 30% 94%;
+
+    --muted: 222 30% 16%;
+    --muted-foreground: 38 18% 78%;
+
+    --accent: 38 88% 56%;
+    --accent-foreground: 222 60% 10%;
+    --accent-soft: 222 40% 18%;
+
+    --destructive: 0 60% 45%;
+    --destructive-foreground: 40 30% 94%;
+
+    --success: 145 50% 45%;
+    --success-foreground: 222 60% 10%;
+
+    --warning: 32 80% 55%;
+    --warning-foreground: 222 60% 10%;
+
+    --border: 222 30% 20%;
+    --input: 222 30% 20%;
+    --ring: 38 88% 56%;
+
+    --gradient-hero: linear-gradient(180deg, hsl(222 47% 8%) 0%, hsl(222 45% 12%) 100%);
+    --gradient-primary: linear-gradient(135deg, hsl(40 30% 94%) 0%, hsl(40 30% 80%) 100%);
+
+    --sidebar-background: 222 50% 6%;
+    --sidebar-foreground: 40 30% 92%;
+    --sidebar-primary: 38 88% 56%;
+    --sidebar-primary-foreground: 222 60% 10%;
+    --sidebar-accent: 222 40% 14%;
+    --sidebar-accent-foreground: 40 30% 94%;
+    --sidebar-border: 222 30% 18%;
+    --sidebar-ring: 38 88% 56%;
+  }
+}
+
+@layer base {
+  * { @apply border-border; }
+  html { font-feature-settings: "ss01", "cv11"; }
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-family: 'Inter', system-ui, sans-serif;
+  }
+  h1, h2, h3, h4, h5 {
+    font-family: 'Fraunces', Georgia, serif;
+    font-feature-settings: "ss01";
+    letter-spacing: -0.01em;
+  }
+  .font-serif { font-family: 'Fraunces', Georgia, serif; }
+  .font-mono  { font-family: 'JetBrains Mono', ui-monospace, monospace; }
+  .font-deva  { font-family: 'Noto Sans Devanagari', serif; }
+}
+
+@layer utilities {
+  .bg-hero { background: var(--gradient-hero); }
+  .bg-gradient-primary { background: var(--gradient-primary); }
+  .bg-gradient-accent { background: var(--gradient-accent); }
+  .shadow-elegant { box-shadow: var(--shadow-lg); }
+  .shadow-glow { box-shadow: var(--shadow-glow); }
+  .text-balance { text-wrap: balance; }
+  .citation-chip {
+    @apply inline-flex items-center gap-1 rounded-md border border-accent/30 bg-accent-soft px-1.5 py-0.5 font-mono text-[0.72rem] font-medium text-primary transition-colors hover:bg-accent/20 cursor-pointer;
+  }
+}
+
+/* Velorah landing — liquid glass + fade-rise */
+.liquid-glass {
+  background: rgba(255, 255, 255, 0.01);
+  background-blend-mode: luminosity;
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  border: none;
+  box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.1);
+  position: relative;
+  overflow: hidden;
+  transition: transform 0.3s ease;
+}
+.liquid-glass::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1.4px;
+  background: linear-gradient(180deg,
+    rgba(255,255,255,0.45) 0%, rgba(255,255,255,0.15) 20%,
+    rgba(255,255,255,0) 40%, rgba(255,255,255,0) 60%,
+    rgba(255,255,255,0.15) 80%, rgba(255,255,255,0.45) 100%);
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  pointer-events: none;
+}
+@keyframes fade-rise {
+  from { opacity: 0; transform: translateY(24px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.animate-fade-rise { animation: fade-rise 0.8s ease-out both; }
+.animate-fade-rise-delay { animation: fade-rise 0.8s ease-out 0.2s both; }
+.animate-fade-rise-delay-2 { animation: fade-rise 0.8s ease-out 0.4s both; }
+
+/* Perplexity-inspired surfaces — search-first, citation-forward */
+@layer components {
+  .px-ask {
+    @apply rounded-3xl border border-border bg-card shadow-md transition-shadow;
+    box-shadow: 0 1px 2px hsl(222 47% 11% / 0.04), 0 8px 32px -12px hsl(222 47% 11% / 0.10);
+  }
+  .px-ask:focus-within {
+    @apply border-accent/50;
+    box-shadow: 0 0 0 4px hsl(var(--accent) / 0.10), 0 12px 36px -12px hsl(222 47% 11% / 0.18);
+  }
+  .px-pill {
+    @apply inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-3.5 py-2 text-xs font-medium text-foreground/80 transition-all hover:border-accent/40 hover:bg-accent-soft hover:text-foreground;
+  }
+  .px-section-label {
+    @apply inline-flex items-center gap-1.5 font-mono text-[0.7rem] uppercase tracking-[0.14em] text-muted-foreground;
+  }
+  .px-divider { @apply h-px w-full bg-border/70; }
+}
+
+.prose-px { max-width: 42rem; }
+.prose-px p { @apply mb-4 leading-[1.75] text-foreground; }

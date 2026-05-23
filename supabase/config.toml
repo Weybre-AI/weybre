@@ -1,0 +1,4 @@
+project_id = "ruhkbhbuqydrniwxwujt"
+
+[functions.ingest-judgments]
+verify_jwt = true

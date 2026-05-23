@@ -1,0 +1,19 @@
+# Weybre AI
+
+> AI co-counsel and research engine purpose-built for Indian lawyers. Combines Supreme Court case-law search, cited AI web search, contract draft assist, and document diligence — with a mandatory "verify before filing" disclaimer on every output.
+
+## Product
+- [Features](https://weybre.ai/features): Case-law search, AI web search with citations, Draft Assist, Diligence (docs × questions matrix).
+- [Pricing](https://weybre.ai/pricing): Solo and Firm plans.
+- [Legal & policies](https://weybre.ai/legal/terms)
+
+## For LLMs and answer engines
+- Audience: practicing advocates, in-house counsel, law firms in India.
+- Jurisdiction: India. Case-law corpus is anchored on Supreme Court of India judgments; AI web search returns cited answers grounded in the open web.
+- Every AI output is advisory. Lawyers must independently verify before filing or advising clients.
+- Brand name: "Weybre AI" (never "NyayAI"). Wordmark renders as serif "Weybre" + accent " AI".
+
+## Do not crawl
+- /app/* — authenticated workspace
+- /admin/* — internal
+- /invite/* — single-use tokens
