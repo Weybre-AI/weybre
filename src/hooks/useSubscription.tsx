@@ -39,6 +39,15 @@ export const useSubscription = () => {
   const [sub, setSub] = useState<Subscription | null>(null);
   const [loading, setLoading] = useState(true);
 
+  const [plans, setPlans] = useState<Record<string, number>>({});
+
+  useEffect(() => {
+    (async () => {
+      const { data } = await supabase.from("billing_plans").select("id, credits_per_month");
+      if (data) setPlans(data.reduce((acc, p) => ({ ...acc, [p.id]: p.credits_per_month }), {}));
+    })();
+  }, []);
+
   useEffect(() => {
     if (!user) { setSub(null); setLoading(false); return; }
     let active = true;
@@ -56,7 +65,7 @@ export const useSubscription = () => {
   const isActive = isAdmin || sub?.status === "active";
   const isUnlimited = isAdmin || sub?.plan === "enterprise";
   const creditsRemaining = isUnlimited ? Infinity : (sub?.credits_remaining ?? 0);
-  const totalCredits = isUnlimited ? Infinity : PLAN_CREDITS[sub?.plan ?? "starter"] ?? 100;
+  const totalCredits = isUnlimited ? Infinity : plans[sub?.plan ?? "starter"] ?? PLAN_CREDITS[sub?.plan ?? "starter"] ?? 100;
   const creditsPercent = isUnlimited ? 100 : Math.round((creditsRemaining / totalCredits) * 100);
 
   return { sub, loading: loading || adminLoading, isActive, isUnlimited, creditsRemaining, totalCredits, creditsPercent };

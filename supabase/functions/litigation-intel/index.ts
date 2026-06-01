@@ -1,19 +1,29 @@
 // deploy: 20260522151723
 // Weybre AI — Litigation Intelligence
+/* eslint-disable @typescript-eslint/no-explicit-any */
 // Combines eCourts (live court data) + Indian Kanoon (precedents) + Google Gemini
 // to produce a unified case-intelligence brief.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
+import { z } from "https://deno.land/x/zod@v3.22.4/mod.ts";
 
-import { corsHeaders, handleOptions } from "../_shared/cors.ts";
-import { getUser } from "../_shared/auth.ts";
+import { handleOptions, json } from "../_shared/cors.ts";
+import { getUser, requireEnv } from "../_shared/auth.ts";
 import { chatCompletion, MODELS } from "../_shared/ai.ts";
 import { deductCredits, validateInputSize, checkRateLimit } from "../_shared/credits.ts";
+import { logError, logInfo } from "../_shared/logger.ts";
 
-const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
-const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-const GOOGLE_AI_API_KEY = Deno.env.get("GOOGLE_AI_API_KEY")!;
-const IK_TOKEN = Deno.env.get("INDIAN_KANOON_API_TOKEN")!;
-const ECOURTS_TOKEN = Deno.env.get("ECOURTS_API_TOKEN")!;
+const RequestSchema = z.object({
+  mode: z.enum(["auto", "cnr", "keyword", "document"]).default("auto"),
+  cnr: z.string().optional().default(""),
+  query: z.string().optional().default(""),
+  documentText: z.string().optional().default(""),
+});
+
+const SUPABASE_URL = requireEnv("SUPABASE_URL");
+const SERVICE_ROLE = requireEnv("SUPABASE_SERVICE_ROLE_KEY");
+const GOOGLE_AI_API_KEY = requireEnv("GOOGLE_AI_API_KEY");
+const IK_TOKEN = requireEnv("INDIAN_KANOON_API_TOKEN");
+const ECOURTS_TOKEN = requireEnv("ECOURTS_API_TOKEN");
 
 const IK_BASE = "https://api.indiankanoon.org";
 const ECOURTS_BASE = "https://webapi.ecourtsindia.com";
@@ -21,13 +31,6 @@ const ECOURTS_BASE = "https://webapi.ecourtsindia.com";
 // ---------- helpers ----------
 function stripHtml(s = ""): string {
   return s.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
-}
-
-function json(body: unknown, status = 200, origin = "") {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { ...corsHeaders(origin), "Content-Type": "application/json" },
-  });
 }
 
 // ---------- Indian Kanoon ----------
@@ -41,8 +44,8 @@ async function ikSearch(query: string, limit = 5) {
     console.error("IK search error", r.status);
     return [];
   }
-  const j = await r.json().catch(() => ({}));
-  const docs = Array.isArray(j.docs) ? j.docs.slice(0, limit) : [];
+  const j: any = await r.json().catch(() => ({}));
+  const docs = Array.isArray(j.docs) ? (j.docs as any[]).slice(0, limit) : [];
   return docs.map((d: any) => ({
     tid: d.tid,
     title: stripHtml(d.title ?? ""),
@@ -78,13 +81,13 @@ async function ecourtsSearch(query: string) {
     console.error("eCourts search error", r.status);
     return [];
   }
-  const j = await r.json().catch(() => ({}));
-  return Array.isArray(j.results) ? j.results : Array.isArray(j.data) ? j.data : [];
+  const j: any = await r.json().catch(() => ({}));
+  return Array.isArray(j.results) ? (j.results as any[]) : Array.isArray(j.data) ? (j.data as any[]) : [];
 }
 
 // ---------- AI synthesis ----------
 async function synthesise(systemPrompt: string, userPrompt: string) {
-  const j = await chatCompletion(GOOGLE_AI_API_KEY, {
+  const j: any = await chatCompletion(GOOGLE_AI_API_KEY, {
     model: MODELS.FLASH,
     messages: [
       { role: "system", content: systemPrompt },
@@ -111,11 +114,18 @@ Deno.serve(async (req) => {
 
     if (!IK_TOKEN) return json({ error: "Indian Kanoon token not configured" }, 500, origin);
 
-    const body = await req.json().catch(() => ({}));
-    const mode = (body.mode ?? "auto") as "auto" | "cnr" | "keyword" | "document";
-    const cnr = String(body.cnr ?? "").trim().toUpperCase();
-    const query = String(body.query ?? "").trim();
-    const documentText = String(body.documentText ?? "").trim();
+    const rawBody = await req.json().catch(() => ({}));
+    const parseResult = RequestSchema.safeParse(rawBody);
+    if (!parseResult.success) {
+      logError("Validation failed", parseResult.error);
+      return json({ error: parseResult.error.errors[0]?.message ?? "Invalid request body" }, 400, origin);
+    }
+    const { mode: rawMode, cnr: rawCnr, query: rawQuery, documentText: rawDoc } = parseResult.data;
+
+    const mode = rawMode as "auto" | "cnr" | "keyword" | "document";
+    const cnr = String(rawCnr).trim().toUpperCase();
+    const query = String(rawQuery).trim();
+    const documentText = String(rawDoc).trim();
 
     // Security: Rate limiting
     const rateCheck = checkRateLimit(user.id, 10, 60000);
@@ -149,8 +159,8 @@ Deno.serve(async (req) => {
       }
       courtData = await ecourtsCase(cnr);
       // Build precedent search query from case metadata
-      const caseTitle = courtData?.case?.title ?? courtData?.title ?? "";
-      const caseType = courtData?.case?.case_type ?? "";
+      const caseTitle = (courtData as any)?.case?.title ?? (courtData as any)?.title ?? "";
+      const caseType = (courtData as any)?.case?.case_type ?? "";
       searchQuery = [caseTitle, caseType].filter(Boolean).join(" ").slice(0, 200) || cnr;
     } else if (resolvedMode === "document") {
       // Use first 200 words of document to find related precedents
@@ -163,7 +173,7 @@ Deno.serve(async (req) => {
     // Step 3: court-records cross-reference (only for keyword mode)
     let liveCases: any[] = [];
     if (resolvedMode === "keyword" && query) {
-      liveCases = await ecourtsSearch(query).then(r => r.slice(0, 5));
+      liveCases = await (ecourtsSearch(query) as Promise<any[]>).then(r => r.slice(0, 5));
     }
 
     // Step 4: synthesise intelligence brief
@@ -191,7 +201,7 @@ Cover, in this order, as natural prose:
 - The most relevant precedents with [n] citations and how each applies.
 - Hearing & procedural status from eCourts if present, else state plainly that CNR is needed for live tracking.
 - A short take on how this court/judge typically rules in similar matters.
-- 3-5 concrete next steps — filings, sections to invoke, evidence, deadlines.
+- 3-5 concrete next steps — filings, sections to invoke, deadlines, evidence.
 - Drafting hooks (headings, prayer clauses, notice points) the lawyer can copy.
 - Risk flags — limitations, jurisdictional issues, weaknesses.
 - Fraud & predatory-pattern signals — call out, in one short paragraph prefixed exactly with "Fraud & predatory signals:", anything suggestive of document fraud, fabricated stamps/notarisation, back-dated filings, copy-paste boilerplate across many cases, repeat plaintiffs/advocates running mass-volume claims, suspicious limitation-period gymnastics, or coercive/extortionate notice patterns. If nothing is suspicious, write: "Fraud & predatory signals: none observed in the available record."

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useCallback } from "react";
 import { AppShell } from "@/components/AppShell";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -39,10 +39,10 @@ export default function AuditLog() {
 
   const canView = currentOrg?.role === "owner" || currentOrg?.role === "admin";
 
-  async function load() {
+  const load = useCallback(async () => {
     if (!currentOrg || !canView) return;
     setLoading(true);
-    let q = (supabase as any)
+    let q = supabase
       .from("audit_logs")
       .select("id,organization_id,actor_user_id,actor_email,action,resource_type,resource_id,metadata,created_at")
       .eq("organization_id", currentOrg.id)
@@ -53,9 +53,9 @@ export default function AuditLog() {
     const { data, error } = await q;
     setLoading(false);
     if (!error) setRows((data ?? []) as AuditRow[]);
-  }
+  }, [currentOrg, canView, action, actor]);
 
-  useEffect(() => { void load(); /* eslint-disable-next-line */ }, [currentOrg?.id, action]);
+  useEffect(() => { void load();   }, [load]);
 
   const filtered = useMemo(() => {
     if (!search.trim()) return rows;

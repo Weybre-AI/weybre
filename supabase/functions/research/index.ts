@@ -4,18 +4,17 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 
 import { handleOptions, json } from "../_shared/cors.ts";
-import { getUser } from "../_shared/auth.ts";
-import { chatCompletion, MODELS } from "../_shared/ai.ts";
+import { getUser, requireEnv } from "../_shared/auth.ts";
+import { chatCompletion, embed, MODELS } from "../_shared/ai.ts";
 import { deductCredits, validateInputSize, checkRateLimit } from "../_shared/credits.ts";
 
-const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
-const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-const GOOGLE_AI_API_KEY = Deno.env.get("GOOGLE_AI_API_KEY")!;
+const SUPABASE_URL = requireEnv("SUPABASE_URL");
+const SUPABASE_SERVICE_ROLE_KEY = requireEnv("SUPABASE_SERVICE_ROLE_KEY");
+const GOOGLE_AI_API_KEY = requireEnv("GOOGLE_AI_API_KEY");
 const TAVILY_API_KEY = Deno.env.get("TAVILY_API_KEY") ?? "";
 const IK_TOKEN = Deno.env.get("INDIAN_KANOON_API_TOKEN") ?? "";
 const IK_BASE = "https://api.indiankanoon.org";
 
-function zeroEmbedding(): number[] { return new Array(1536).fill(0); }
 function stripHtml(s = ""): string { return s.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim(); }
 
 async function expandLegalQuery(query: string): Promise<string> {
@@ -41,7 +40,7 @@ async function ikSearch(query: string, limit = 6) {
   if (!r.ok) { console.error("IK search error", r.status); return []; }
   const j = await r.json().catch(() => ({}));
   const docs = Array.isArray(j.docs) ? j.docs.slice(0, limit) : [];
-  return docs.map((d: any) => ({
+  return docs.map((d: unknown) => ({
     tid: d.tid,
     title: stripHtml(d.title ?? ""),
     source: d.docsource ?? "",
@@ -67,7 +66,7 @@ async function searchSupremeCourtWeb(query: string) {
   });
   if (!r.ok) return [];
   const j = await r.json();
-  return Array.isArray(j.results) ? j.results.filter((x: any) => x?.url).slice(0, 6) : [];
+  return Array.isArray(j.results) ? j.results.filter((x: unknown) => x?.url).slice(0, 6) : [];
 }
 
 Deno.serve(async (req) => {
@@ -107,12 +106,12 @@ Deno.serve(async (req) => {
     }
     const userDocs: Array<{ name: string; text: string }> = Array.isArray(userContext)
       ? userContext
-          .filter((d: any) => d && typeof d.text === "string" && d.text.trim().length > 0)
+          .filter((d: unknown) => d && typeof d.text === "string" && d.text.trim().length > 0)
           .slice(0, 6)
-          .map((d: any) => ({ name: String(d.name ?? "User document").slice(0, 120), text: String(d.text).slice(0, 12000) }))
+          .map((d: unknown) => ({ name: String(d.name ?? "User document").slice(0, 120), text: String(d.text).slice(0, 12000) }))
       : [];
 
-    const queryEmbedding = zeroEmbedding();
+    const queryEmbedding = await embed(GOOGLE_AI_API_KEY, query) ?? new Array(1536).fill(0);
 
     // ---------- 1. Hybrid retrieval in parallel: SC corpus + Indian Kanoon ----------
     const [internalRes, ikDocs] = await Promise.all([
@@ -135,7 +134,7 @@ Deno.serve(async (req) => {
         query_embedding: `[${queryEmbedding.join(",")}]`,
         match_count: 6,
       });
-      const seen = new Set(internal.map((c: any) => c.id));
+      const seen = new Set(internal.map((c: unknown) => c.id));
       for (const c of more ?? []) if (!seen.has(c.id)) internal.push(c);
       internal = internal.slice(0, 6);
     }
@@ -186,7 +185,7 @@ Deno.serve(async (req) => {
     }
 
     // De-dupe Kanoon vs internal by title similarity
-    const internalTitles = new Set(internal.map((c: any) => (c.title ?? "").toLowerCase().slice(0, 60)));
+    const internalTitles = new Set(internal.map((c: unknown) => (c.title ?? "").toLowerCase().slice(0, 60)));
     for (const d of ikDocs) {
       const key = d.title.toLowerCase().slice(0, 60);
       if (internalTitles.has(key)) continue;
@@ -224,8 +223,8 @@ Deno.serve(async (req) => {
           citations: [],
         }, 200, origin);
       }
-      const webContext = webCases.map((c: any, i: number) => `[${i + 1}] ${c.title ?? "Result"}\nURL: ${c.url}\nExcerpt: ${c.content ?? ""}`).join("\n\n---\n\n");
-      let wj: any;
+      const webContext = webCases.map((c: unknown, i: number) => `[${i + 1}] ${c.title ?? "Result"}\nURL: ${c.url}\nExcerpt: ${c.content ?? ""}`).join("\n\n---\n\n");
+      let wj: unknown;
       try {
         wj = await chatCompletion(GOOGLE_AI_API_KEY, {
           model: MODELS.FLASH,
@@ -234,12 +233,12 @@ Deno.serve(async (req) => {
             { role: "user", content: `QUESTION: ${query}\n\nLIVE RESULTS:\n\n${webContext}` },
           ],
         });
-      } catch (aiErr: any) {
+      } catch (aiErr: unknown) {
         return json({ error: aiErr.message ?? "AI synthesis failed" }, aiErr.status ?? 500, origin);
       }
       return json({
         answer: wj.choices?.[0]?.message?.content ?? "No answer generated.",
-        citations: webCases.map((c: any, i: number) => {
+        citations: webCases.map((c: unknown, i: number) => {
           let court = "";
           try { court = new URL(c.url).hostname.replace(/^www\./, ""); } catch { /* ignore */ }
           return {
@@ -291,7 +290,7 @@ Hard rules:
     const userPrompt = `QUESTION: ${query}${userDocsBlock}\n\nCONTEXT (ranked Indian precedents):\n\n${context}\n\nWhen user documents are provided, frame the answer around their facts, then map the precedents to those facts. Use [n] for precedents and [U#] for user documents.`;
 
     // ---------- 5. Synthesize ----------
-    let j: any;
+    let j: unknown;
     try {
       j = await chatCompletion(GOOGLE_AI_API_KEY, {
         model: MODELS.FLASH,
@@ -300,7 +299,7 @@ Hard rules:
           { role: "user", content: userPrompt },
         ],
       });
-    } catch (aiErr: any) {
+    } catch (aiErr: unknown) {
       return json({ error: aiErr.message ?? "AI synthesis failed" }, aiErr.status ?? 500, origin);
     }
     const answer = j.choices?.[0]?.message?.content ?? "No answer generated.";

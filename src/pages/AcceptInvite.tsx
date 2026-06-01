@@ -26,7 +26,7 @@ export default function AcceptInvite() {
   async function accept() {
     if (!token) return;
     setStatus("working");
-    const { data, error } = await (supabase as any).rpc("accept_organization_invite", { _token: token });
+    const { data, error } = await supabase.rpc("accept_organization_invite", { _token: token });
     if (error) {
       setStatus("error");
       setMessage(error.message);

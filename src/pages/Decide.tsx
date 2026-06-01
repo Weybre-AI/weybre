@@ -11,6 +11,7 @@ import { safeHref } from "@/lib/safeHref";
 import { toast } from "sonner";
 import { Loader2, Sparkles, ExternalLink, Scale, FileSearch, TrendingUp, Download } from "lucide-react";
 import { exportAiResultPdf } from "@/lib/exportPdf";
+import ReactMarkdown from "react-markdown";
 
 type Mode = "guide" | "predict" | "contract";
 
@@ -23,6 +24,12 @@ interface CaseRef {
   cited_by?: number;
   url: string;
   excerpt: string;
+}
+
+interface DecisionEngineResponse {
+  answer: string;
+  cases: CaseRef[];
+  error?: string;
 }
 
 const SAMPLES: Record<Mode, string[]> = {
@@ -42,7 +49,7 @@ const SAMPLES: Record<Mode, string[]> = {
   ],
 };
 
-const MODE_META: Record<Mode, { label: string; icon: any; placeholder: string }> = {
+const MODE_META: Record<Mode, { label: string; icon: React.ElementType; placeholder: string }> = {
   guide: { label: "Guide me", icon: Scale, placeholder: "Describe the situation in plain English…" },
   predict: { label: "Predict outcome", icon: TrendingUp, placeholder: "Describe the case, parties, facts and relief sought…" },
   contract: { label: "Contract review", icon: FileSearch, placeholder: "Add context (optional) — e.g. 'SaaS MSA between Indian vendor and US client'" },
@@ -69,15 +76,15 @@ const Decide = () => {
     setAnswer(null);
     setCases([]);
     try {
-      const { data, error } = await supabase.functions.invoke("decision-engine", {
+      const { data, error } = await supabase.functions.invoke<DecisionEngineResponse>("decision-engine", {
         body: { problem, contract, mode },
       });
       if (error) throw error;
-      if ((data as any)?.error) throw new Error((data as any).error);
-      setAnswer((data as any).answer);
-      setCases((data as any).cases ?? []);
-    } catch (e: any) {
-      toast.error(e?.message ?? "Decision engine failed");
+      if (data.error) throw new Error(data.error);
+      setAnswer(data.answer);
+      setCases(data.cases ?? []);
+    } catch (e) {
+      toast.error((e as Error)?.message ?? "Decision engine failed");
     } finally {
       setLoading(false);
     }

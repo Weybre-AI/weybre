@@ -105,7 +105,7 @@ const Pricing = () => {
       const checkoutUrl = safeCheckoutUrl(data?.checkout_url);
       if (!checkoutUrl) throw new Error("Invalid checkout URL from payment provider");
       window.location.href = checkoutUrl;
-    } catch (err: any) {
+    } catch (err: unknown) {
       toast.error(err?.message ?? "Unable to start checkout");
       setLoading(null);
     }

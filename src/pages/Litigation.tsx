@@ -36,9 +36,9 @@ interface Precedent {
 interface IntelResponse {
   mode: Mode;
   brief: string;
-  court_data: any;
+  court_data: Record<string, unknown> | null;
   precedents: Precedent[];
-  live_cases: any[];
+  live_cases: Record<string, unknown>[];
   query: string;
 }
 
@@ -122,9 +122,9 @@ const Litigation = () => {
         body: { mode, cnr, query, documentText },
       });
       if (error) throw error;
-      if ((data as any)?.error) throw new Error((data as any).error);
+      if ((data as unknown)?.error) throw new Error((data as unknown).error);
       setIntel(data as IntelResponse);
-    } catch (e: any) {
+    } catch (e: unknown) {
       toast.error(e?.message ?? "Intelligence engine failed");
     } finally {
       setLoading(false);
@@ -161,13 +161,13 @@ const Litigation = () => {
         .from("litigation_watchlist")
         .update({
           last_checked_at: new Date().toISOString(),
-          last_snapshot: { brief: (data as any)?.brief?.slice(0, 600), court_data: (data as any)?.court_data ?? null },
+          last_snapshot: { brief: (data as unknown)?.brief?.slice(0, 600), court_data: (data as unknown)?.court_data ?? null },
         })
         .eq("id", item.id);
       toast.success(`Refreshed: ${item.label}`);
       setIntel(data as IntelResponse);
       loadWatch();
-    } catch (e: any) {
+    } catch (e: unknown) {
       toast.error(e?.message ?? "Refresh failed");
     } finally {
       setRefreshing(null);
@@ -236,9 +236,9 @@ const Litigation = () => {
             body: { mode: "cnr", cnr },
           });
           if (error) throw error;
-          if ((data as any)?.error) throw new Error((data as any).error);
+          if ((data as unknown)?.error) throw new Error((data as unknown).error);
           const d = data as IntelResponse;
-          const c = (d.court_data as any)?.case ?? d.court_data ?? {};
+          const c = (d.court_data as unknown)?.case ?? d.court_data ?? {};
           const fraudMatch = /Fraud & predatory signals:\s*([^\n]+)/i.exec(d.brief ?? "");
           setBatchRows(rows => rows.map((r, idx) => idx === i ? {
             ...r,
@@ -249,7 +249,7 @@ const Litigation = () => {
             brief_excerpt: (d.brief ?? "").slice(0, 240),
             fraud_signal: fraudMatch ? fraudMatch[1].trim() : undefined,
           } : r));
-        } catch (e: any) {
+        } catch (e: unknown) {
           setBatchRows(rows => rows.map((r, idx) => idx === i ? {
             ...r, status: "error", error: e?.message ?? "failed",
           } : r));
@@ -285,12 +285,12 @@ const Litigation = () => {
             })),
             court_data: intel.court_data ?? null,
           },
-        } as any,
+        } as unknown,
       }).select("id").single();
       if (error) throw error;
       toast.success("Draft created with case context");
       navigate(`/app/drafts/${data.id}`);
-    } catch (e: any) {
+    } catch (e: unknown) {
       toast.error(e?.message ?? "Could not create draft");
     } finally {
       setCreatingDraft(false);
@@ -493,7 +493,7 @@ const Litigation = () => {
                       <Gavel className="h-3.5 w-3.5" /> Live court records ({intel.live_cases.length})
                     </h4>
                     <div className="space-y-2">
-                      {intel.live_cases.map((c: any, i) => (
+                      {intel.live_cases.map((c: unknown, i) => (
                         <div key={i} className="rounded-lg border border-border bg-card p-3 text-sm">
                           <div className="font-medium text-primary">{c.title ?? c.case_title ?? "Court record"}</div>
                           <div className="mt-1 text-xs text-muted-foreground">
@@ -575,9 +575,9 @@ const Litigation = () => {
   );
 };
 
-function CourtSummary({ data }: { data: any }) {
+function CourtSummary({ data }: { data: unknown }) {
   const c = data?.case ?? data;
-  const items: { icon: any; label: string; value?: string | null }[] = [
+  const items: { icon: unknown; label: string; value?: string | null }[] = [
     { icon: Calendar, label: "Next hearing", value: c?.next_hearing_date ?? c?.nextHearing ?? c?.next_date },
     { icon: Gavel, label: "Last order", value: c?.last_order_date ?? c?.lastOrderDate },
     { icon: ScrollText, label: "Stage", value: c?.stage ?? c?.case_stage },

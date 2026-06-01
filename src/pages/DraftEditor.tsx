@@ -4,10 +4,9 @@ import { AppShell } from "@/components/AppShell";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { useAuth } from "@/hooks/useAuth";
-import { useM365 } from "@/hooks/useM365";
 import { supabase } from "@/integrations/supabase/client";
 import { ArrowLeft, FileDown, Loader2, Sparkles, ShieldAlert, ArrowUp, Upload, Paperclip, FileText, X } from "lucide-react";
-import { TEMPLATES } from "./Drafts";
+import { TEMPLATES } from "@/lib/constants";
 import { AiDisclaimer } from "@/components/AiDisclaimer";
 import { toast } from "sonner";
 import { extractTextFromFile } from "@/lib/extractText";
@@ -33,15 +32,37 @@ const formatFileSize = (bytes: number) => {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 };
 
+interface Draft {
+  id: string;
+  title: string;
+  template: string;
+  content: string;
+  risk_flags: Risk[];
+  inputs: {
+    case_context?: {
+      brief?: string;
+      cnr?: string;
+      query?: string;
+    };
+    intake_used?: boolean;
+    last_prompt?: string;
+  }
+}
+
+interface DraftResponse {
+  reply: string;
+  content: string;
+  risk_flags: Risk[];
+  error?: string;
+}
+
 const DraftEditor = () => {
   const { id } = useParams();
   const { user } = useAuth();
-  const { connected: m365Connected, uploadToOneDrive, connectMicrosoft } = useM365();
-  const [draft, setDraft] = useState<any>(null);
+  const [draft, setDraft] = useState<Draft | null>(null);
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
   const [exporting, setExporting] = useState(false);
-  const [savingOneDrive, setSavingOneDrive] = useState(false);
   const [chat, setChat] = useState<{role: "user" | "assistant"; content: string}[]>([]);
   const [input, setInput] = useState("");
   const [risks, setRisks] = useState<Risk[]>([]);
@@ -54,12 +75,12 @@ const DraftEditor = () => {
     if (!user || !id) return;
     (async () => {
       const { data } = await supabase.from("drafts").select("*").eq("id", id).maybeSingle();
-      setDraft(data);
-      setRisks(((data?.risk_flags as any) ?? []) as Risk[]);
+      setDraft(data as Draft | null);
+      setRisks((data?.risk_flags as Risk[] ?? []));
 
       // If created from a Litigation Intel result, pre-seed the chat with a draft prompt
-      const ctx = (data?.inputs as any)?.case_context;
-      if (ctx && !(data?.inputs as any)?.intake_used) {
+      const ctx = data?.inputs?.case_context;
+      if (ctx && !data?.inputs?.intake_used) {
         const briefPreview = String(ctx.brief ?? "").slice(0, 1800);
         const ref = ctx.cnr ? `CNR ${ctx.cnr}` : (ctx.query ?? "case");
         setInput(
@@ -70,11 +91,11 @@ const DraftEditor = () => {
         );
         // mark consumed so we don't re-seed on every load
         await supabase.from("drafts")
-          .update({ inputs: { ...(data.inputs as any ?? {}), intake_used: true } as any })
+          .update({ inputs: { ...(data.inputs ?? {}), intake_used: true } })
           .eq("id", id!);
       }
 
-      const { data: files } = await (supabase as any)
+      const { data: files } = await supabase
         .from("draft_attachments")
         .select("id,file_name,storage_path,mime_type,file_size,status,error_message")
         .eq("draft_id", id)
@@ -85,7 +106,7 @@ const DraftEditor = () => {
   }, [id, user]);
 
   const updateContent = (content: string) => {
-    setDraft((d: any) => ({ ...d, content }));
+    setDraft((d) => (d ? { ...d, content } : null));
     if (saveTimer.current) clearTimeout(saveTimer.current);
     saveTimer.current = window.setTimeout(() => {
       supabase.from("drafts").update({ content }).eq("id", id!).then(() => {});
@@ -100,7 +121,7 @@ const DraftEditor = () => {
     setGenerating(true);
 
     try {
-      const { data, error } = await supabase.functions.invoke("draft", {
+      const { data, error } = await supabase.functions.invoke<DraftResponse>("draft", {
         body: {
           draft_id: id,
           template: draft.template,
@@ -117,16 +138,16 @@ const DraftEditor = () => {
       const newRisks: Risk[] = data.risk_flags ?? [];
 
       setChat(c => [...c, { role: "assistant", content: reply }]);
-      setDraft((d: any) => ({ ...d, content: newContent }));
+      setDraft((d) => (d ? { ...d, content: newContent } : null));
       setRisks(newRisks);
 
       await supabase.from("drafts").update({
         content: newContent,
-        risk_flags: newRisks as any,
-        inputs: { last_prompt: userMsg } as any,
+        risk_flags: newRisks,
+        inputs: { last_prompt: userMsg },
       }).eq("id", id!);
-    } catch (err: any) {
-      toast.error("Drafting failed", { description: err?.message });
+    } catch (err) {
+      toast.error("Drafting failed", { description: (err as Error)?.message });
     } finally {
       setGenerating(false);
     }
@@ -159,7 +180,7 @@ const DraftEditor = () => {
       });
       if (uploadError) throw uploadError;
 
-      const { data, error } = await (supabase as any).from("draft_attachments").insert({
+      const { data, error } = await supabase.from("draft_attachments").insert({
         draft_id: id,
         user_id: user.id,
         file_name: file.name,
@@ -173,8 +194,8 @@ const DraftEditor = () => {
 
       setAttachments(prev => [data as Attachment, ...prev]);
       toast.success("Document uploaded", { description: "Weybre AI will use it in the next draft or review request." });
-    } catch (err: any) {
-      toast.error("Upload failed", { description: err?.message });
+    } catch (err) {
+      toast.error("Upload failed", { description: (err as Error)?.message });
     } finally {
       setUploading(false);
     }
@@ -183,11 +204,11 @@ const DraftEditor = () => {
   const removeAttachment = async (attachment: Attachment) => {
     try {
       await supabase.storage.from("draft-documents").remove([attachment.storage_path]);
-      const { error } = await (supabase as any).from("draft_attachments").delete().eq("id", attachment.id);
+      const { error } = await supabase.from("draft_attachments").delete().eq("id", attachment.id);
       if (error) throw error;
       setAttachments(prev => prev.filter(item => item.id !== attachment.id));
-    } catch (err: any) {
-      toast.error("Remove failed", { description: err?.message });
+    } catch (err) {
+      toast.error("Remove failed", { description: (err as Error)?.message });
     }
   };
 
@@ -204,42 +225,12 @@ const DraftEditor = () => {
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a"); a.href = url; a.download = `${draft.title}.${format}`; a.click();
       URL.revokeObjectURL(url);
-    } catch (err: any) {
-      toast.error("Export failed", { description: err?.message });
+    } catch (err) {
+      toast.error("Export failed", { description: (err as Error)?.message });
     } finally { setExporting(false); }
   };
 
-  const saveToOneDrive = async () => {
-    if (!id) return;
-    if (!m365Connected) {
-      // User hasn't signed in with Microsoft — trigger the OAuth flow
-      toast.info("Connecting to Microsoft 365…");
-      connectMicrosoft("/app/settings");
-      return;
-    }
-    setSavingOneDrive(true);
-    try {
-      // Export as DOCX first, then push to OneDrive
-      const { data, error } = await supabase.functions.invoke("export-draft", {
-        body: { draft_id: id, format: "docx" },
-      });
-      if (error) throw error;
-      const blob = new Blob(
-        [Uint8Array.from(atob(data.file), c => c.charCodeAt(0))],
-        { type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document" },
-      );
-      const filename = `${draft.title ?? "draft"}.docx`;
-      const webUrl = await uploadToOneDrive(blob, filename, { draftId: id });
-      toast.success("Saved to OneDrive", {
-        description: "Weybre AI / " + filename,
-        action: { label: "Open", onClick: () => window.open(webUrl, "_blank", "noopener,noreferrer") },
-      });
-    } catch (err: any) {
-      toast.error("OneDrive upload failed", { description: err?.message });
-    } finally {
-      setSavingOneDrive(false);
-    }
-  };
+
 
   if (loading) return <AppShell><div className="flex h-screen items-center justify-center"><Loader2 className="h-5 w-5 animate-spin" /></div></AppShell>;
   if (!draft) return <AppShell><div className="container py-10">Draft not found.</div></AppShell>;
@@ -261,17 +252,7 @@ const DraftEditor = () => {
               <div className="flex flex-wrap gap-2">
                 <Button size="sm" variant="outline" onClick={() => exportDraft("docx")} disabled={exporting}><FileDown className="h-4 w-4" />DOCX</Button>
                 <Button size="sm" variant="outline" onClick={() => exportDraft("pdf")} disabled={exporting}><FileDown className="h-4 w-4" />PDF</Button>
-                <Button size="sm" variant="outline" onClick={saveToOneDrive} disabled={exporting || savingOneDrive} title={m365Connected ? "Save to OneDrive" : "Connect Microsoft 365 to save to OneDrive"}>
-                  {savingOneDrive ? <Loader2 className="h-4 w-4 animate-spin" /> : (
-                    <svg className="h-4 w-4" viewBox="0 0 21 21" xmlns="http://www.w3.org/2000/svg">
-                      <rect x="1" y="1" width="9" height="9" fill="#f25022"/>
-                      <rect x="11" y="1" width="9" height="9" fill="#7fba00"/>
-                      <rect x="1" y="11" width="9" height="9" fill="#00a4ef"/>
-                      <rect x="11" y="11" width="9" height="9" fill="#ffb900"/>
-                    </svg>
-                  )}
-                  OneDrive
-                </Button>
+
               </div>
             </div>
 

@@ -4,10 +4,10 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 
 import { corsHeaders, handleOptions, json as corsJson } from "../_shared/cors.ts";
-import { getUser } from "../_shared/auth.ts";
+import { getUser, requireEnv } from "../_shared/auth.ts";
 
-const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
-const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+const SUPABASE_URL = requireEnv("SUPABASE_URL");
+const SERVICE_ROLE = requireEnv("SUPABASE_SERVICE_ROLE_KEY");
 
 function json(body: unknown, status = 200, origin = "") {
   return corsJson(body, status, origin);

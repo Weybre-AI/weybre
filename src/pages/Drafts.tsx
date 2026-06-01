@@ -9,20 +9,19 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
+import { TEMPLATES } from "@/lib/constants";
 
-export const TEMPLATES = [
-  { key: "nda", label: "Non-Disclosure Agreement", desc: "Mutual or one-way NDA for business discussions." },
-  { key: "employment", label: "Employment Agreement", desc: "Indian-law employment with notice, IP, non-compete." },
-  { key: "service", label: "Service Agreement", desc: "Independent contractor / consultancy agreement." },
-  { key: "legal_notice", label: "Legal Notice", desc: "Pre-litigation notice (e.g. Section 138 NI Act)." },
-  { key: "reply_notice", label: "Reply to Legal Notice", desc: "Defensive reply with denial and rebuttal." },
-  { key: "vakalatnama", label: "Vakalatnama", desc: "Standard authorization for advocate representation." },
-];
+interface Draft {
+  id: string;
+  title: string;
+  template: string;
+  updated_at: string;
+}
 
 const Drafts = () => {
   const { user } = useAuth();
   const nav = useNavigate();
-  const [drafts, setDrafts] = useState<any[]>([]);
+  const [drafts, setDrafts] = useState<Draft[]>([]);
   const [loading, setLoading] = useState(true);
   const [open, setOpen] = useState(false);
   const [tpl, setTpl] = useState<string>("");

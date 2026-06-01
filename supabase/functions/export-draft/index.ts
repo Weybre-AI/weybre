@@ -5,10 +5,10 @@ import { Document, Packer, Paragraph, TextRun, HeadingLevel, AlignmentType } fro
 import { jsPDF } from "https://esm.sh/jspdf@2.5.1";
 
 import { handleOptions, json } from "../_shared/cors.ts";
-import { getUser } from "../_shared/auth.ts";
+import { getUser, requireEnv } from "../_shared/auth.ts";
 
-const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
-const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+const SUPABASE_URL = requireEnv("SUPABASE_URL");
+const SERVICE_ROLE = requireEnv("SUPABASE_SERVICE_ROLE_KEY");
 
 function bytesToBase64(bytes: Uint8Array): string {
   let binary = "";

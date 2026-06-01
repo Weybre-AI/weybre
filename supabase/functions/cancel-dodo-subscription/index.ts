@@ -1,11 +1,11 @@
 // deploy: 20260522151723
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
-import { getUser } from "../_shared/auth.ts";
+import { getUser, requireEnv } from "../_shared/auth.ts";
 import { handleOptions, json } from "../_shared/cors.ts";
 
-const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
-const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-const DODO_API_KEY = Deno.env.get("DODO_PAYMENTS_API_KEY")!;
+const SUPABASE_URL = requireEnv("SUPABASE_URL");
+const SERVICE_ROLE = requireEnv("SUPABASE_SERVICE_ROLE_KEY");
+const DODO_API_KEY = requireEnv("DODO_PAYMENTS_API_KEY");
 const DODO_ENV = (Deno.env.get("DODO_PAYMENTS_ENV") ?? "test_mode") as "test_mode" | "live_mode";
 const DODO_BASE = DODO_ENV === "live_mode" ? "https://live.dodopayments.com" : "https://test.dodopayments.com";
 

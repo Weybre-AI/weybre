@@ -6,28 +6,44 @@
  * Auth:     GOOGLE_AI_API_KEY (get from https://aistudio.google.com/apikey)
  *
  * Model names (no prefix needed):
- *   gemini-2.5-flash       — fast, high quality, default for most tasks
- *   gemini-2.5-flash-lite  — fastest, lowest cost, simple tasks
- *   gemini-2.5-pro         — highest quality, complex reasoning / multimodal
+ *   gemini-2.0-flash       — fast, high quality, default for most tasks
+ *   gemini-2.0-pro         — highest quality, complex reasoning / multimodal
  *   text-embedding-004     — 768-dim embeddings (we pad to 1536 for schema compat)
  */
 
 const GOOGLE_AI_BASE = "https://generativelanguage.googleapis.com/v1beta/openai";
 
 export const MODELS = {
-  FLASH:      "gemini-2.5-flash",
-  FLASH_LITE: "gemini-2.5-flash-lite",
-  PRO:        "gemini-2.5-pro",
+  FAST:       "gemini-2.0-flash",
+  FLASH:      "gemini-2.0-flash",
+  FLASH_LITE: "gemini-2.0-flash-lite-preview-02-05",
+  REASONING:  "gemini-2.0-flash-thinking-exp-01-21",
+  PRO:        "gemini-2.0-pro-exp-02-05",
   EMBED:      "text-embedding-004",
 } as const;
 
-export type ChatMessage = { role: "system" | "user" | "assistant" | "tool"; content: any };
+export async function validateModels(apiKey: string) {
+  try {
+    const res = await chatCompletion(apiKey, {
+      model: MODELS.FAST,
+      messages: [{ role: "user", content: "ping" }],
+      max_tokens: 5
+    });
+    if (!res || res.error) throw new Error("Invalid model response");
+    console.log("Model validation successful.");
+  } catch (e) {
+    console.error("Model validation failed:", e);
+    throw new Error("Invalid model configuration or API key.");
+  }
+}
+
+export type ChatMessage = { role: "system" | "user" | "assistant" | "tool"; content: unknown };
 
 export interface ChatOptions {
   model?: string;
   messages: ChatMessage[];
-  tools?: any[];
-  tool_choice?: any;
+  tools?: unknown[];
+  tool_choice?: unknown;
   response_format?: { type: string };
   temperature?: number;
   max_tokens?: number;
@@ -37,7 +53,7 @@ export interface ChatOptions {
  * Call the Gemini chat completions endpoint.
  * Returns the raw response JSON — callers read choices[0].message.content.
  */
-export async function chatCompletion(apiKey: string, opts: ChatOptions): Promise<any> {
+export async function chatCompletion(apiKey: string, opts: ChatOptions): Promise<unknown> {
   const res = await fetch(`${GOOGLE_AI_BASE}/chat/completions`, {
     method: "POST",
     headers: {

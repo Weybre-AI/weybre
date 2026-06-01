@@ -1,11 +1,11 @@
 // deploy: 20260522151723
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
-import { getUser } from "../_shared/auth.ts";
+import { getUser, requireEnv } from "../_shared/auth.ts";
 import { handleOptions, isOriginAllowed, json } from "../_shared/cors.ts";
 
-const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
-const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-const DODO_API_KEY = Deno.env.get("DODO_PAYMENTS_API_KEY")!;
+const SUPABASE_URL = requireEnv("SUPABASE_URL");
+const SERVICE_ROLE = requireEnv("SUPABASE_SERVICE_ROLE_KEY");
+const DODO_API_KEY = requireEnv("DODO_PAYMENTS_API_KEY");
 const DODO_ENV = (Deno.env.get("DODO_PAYMENTS_ENV") ?? "test_mode") as "test_mode" | "live_mode";
 const DODO_BASE = DODO_ENV === "live_mode" ? "https://live.dodopayments.com" : "https://test.dodopayments.com";
 
@@ -43,17 +43,14 @@ Deno.serve(async (req) => {
     const fullName = profile.data?.full_name ?? user.user_metadata?.full_name ?? user.email.split("@")[0];
 
     // Direct REST call to Dodo Payments — create subscription with hosted payment link
+    // TODO: Fetch billing details from user profile or collect on checkout page.
     const payload = {
       product_id: productId,
       quantity: 1,
       payment_link: true,
       return_url: returnUrl,
-      billing: {
+      billing: body.billing ?? {
         country: "IN",
-        state: "Karnataka",
-        city: "Bengaluru",
-        street: "—",
-        zipcode: "560001",
       },
       customer: { email: user.email, name: fullName },
       metadata: { user_id: user.id, plan, product: "Weybre AI" },

@@ -3,14 +3,14 @@
 // with risk flags, grounded in Indian SC judgments where applicable.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 
-import { corsHeaders, handleOptions } from "../_shared/cors.ts";
-import { getUser } from "../_shared/auth.ts";
-import { chatCompletion, MODELS } from "../_shared/ai.ts";
+import { handleOptions, json } from "../_shared/cors.ts";
+import { getUser, requireEnv } from "../_shared/auth.ts";
+import { chatCompletion, embed, MODELS } from "../_shared/ai.ts";
 import { deductCredits, validateInputSize, checkRateLimit } from "../_shared/credits.ts";
 
-const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
-const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-const GOOGLE_AI_API_KEY = Deno.env.get("GOOGLE_AI_API_KEY")!;
+const SUPABASE_URL = requireEnv("SUPABASE_URL");
+const SUPABASE_SERVICE_ROLE_KEY = requireEnv("SUPABASE_SERVICE_ROLE_KEY");
+const GOOGLE_AI_API_KEY = requireEnv("GOOGLE_AI_API_KEY");
 
 const TEMPLATE_GUIDES: Record<string, string> = {
   nda: "Mutual or one-way Non-Disclosure Agreement under Indian Contract Act 1872. Include: parties, purpose, definition of confidential information, exclusions, obligations, term (typically 2-3 years), return/destruction, remedies (injunction + damages), governing law (Indian), jurisdiction, dispute resolution (arbitration under Arbitration & Conciliation Act 1996 or courts).",
@@ -24,7 +24,8 @@ const TEMPLATE_GUIDES: Record<string, string> = {
 const TEXT_MIME_TYPES = new Set(["text/plain", "text/markdown", "application/rtf"]);
 
 function cleanExtractedText(text: string): string {
-  return text.replace(/\u0000/g, " ").replace(/[\t ]+/g, " ").replace(/\n{3,}/g, "\n\n").trim();
+  // eslint-disable-next-line no-control-regex
+  return text.replace(new RegExp("\\x00", "g"), " ").replace(/[\t ]+/g, " ").replace(/\n{3,}/g, "\n\n").trim();
 }
 
 async function getAttachmentContext(admin: ReturnType<typeof createClient>, draftId: string, userId: string) {
@@ -39,7 +40,7 @@ async function getAttachmentContext(admin: ReturnType<typeof createClient>, draf
   if (error || !attachments?.length) return "";
 
   const parts: string[] = [];
-  for (const file of attachments as any[]) {
+  for (const file of attachments as unknown[]) {
     let extracted = cleanExtractedText(file.extracted_text ?? "");
     if (!extracted && TEXT_MIME_TYPES.has(file.mime_type)) {
       const { data: blob } = await admin.storage.from("draft-documents").download(file.storage_path);
@@ -53,12 +54,6 @@ async function getAttachmentContext(admin: ReturnType<typeof createClient>, draf
   }
 
   return parts.join("\n\n---\n\n");
-}
-
-// Lovable AI Gateway does not yet expose embeddings; use a zero vector
-// so search_judgments falls back to keyword-only retrieval.
-function zeroEmbedding(): number[] {
-  return new Array(1536).fill(0);
 }
 
 Deno.serve(async (req) => {
@@ -98,7 +93,7 @@ Deno.serve(async (req) => {
     if (conversation.length > MAX_MESSAGES) {
       return json({ error: `Conversation exceeds ${MAX_MESSAGES} messages` }, 413, origin);
     }
-    const totalChars = conversation.reduce((n: number, m: any) => n + String(m?.content ?? "").length, 0);
+    const totalChars = conversation.reduce((n: number, m: unknown) => n + String(m?.content ?? "").length, 0);
     if (totalChars > MAX_TOTAL_CHARS) {
       return json({ error: `Conversation exceeds ${MAX_TOTAL_CHARS} characters` }, 413, origin);
     }
@@ -109,15 +104,15 @@ Deno.serve(async (req) => {
     const attachmentContext = draft_id ? await getAttachmentContext(admin, draft_id, user.id) : "";
 
     // Pull a few relevant SC cases to ground risk flags
-    const lastUserMsg = [...conversation].reverse().find((m: any) => m.role === "user")?.content ?? "";
+    const lastUserMsg = [...conversation].reverse().find((m: unknown) => m.role === "user")?.content ?? "";
     const groundQuery = `${template} ${title ?? ""} ${lastUserMsg}`.slice(0, 800);
-    const queryEmbedding = zeroEmbedding();
+    const queryEmbedding = await embed(GOOGLE_AI_API_KEY, groundQuery) ?? new Array(1536).fill(0);
     const { data: judgments } = await admin.rpc("search_judgments", {
       query_text: groundQuery,
       query_embedding: `[${queryEmbedding.join(",")}]`,
       match_count: 4,
     });
-    const groundContext = (judgments ?? []).map((c: any) =>
+    const groundContext = (judgments ?? []).map((c: unknown) =>
       `- ${c.title} (${c.neutral_citation || c.citation || "—"}): ${(c.headnote ?? c.summary ?? "").slice(0, 400)}`
     ).join("\n");
 
@@ -141,7 +136,7 @@ RULES:
 
 Return ONLY a JSON object via the function tool, no prose.`;
 
-    let j: any;
+    let j: unknown;
     try {
       j = await chatCompletion(GOOGLE_AI_API_KEY, {
         model: MODELS.FLASH,
@@ -181,13 +176,13 @@ Return ONLY a JSON object via the function tool, no prose.`;
         }],
         tool_choice: { type: "function", function: { name: "produce_draft" } },
       });
-    } catch (aiErr: any) {
+    } catch (aiErr: unknown) {
       return json({ error: aiErr.message ?? "AI drafting failed" }, aiErr.status ?? 500, origin);
     }
     const toolCall = j.choices?.[0]?.message?.tool_calls?.[0];
     if (!toolCall) return json({ error: "No draft produced" }, 500, origin);
 
-    let parsed: { reply: string; content: string; risk_flags: any[] };
+    let parsed: { reply: string; content: string; risk_flags: unknown[] };
     try { parsed = JSON.parse(toolCall.function.arguments); }
     catch { return json({ error: "Invalid AI output" }, 500, origin); }
 
@@ -219,10 +214,3 @@ Return ONLY a JSON object via the function tool, no prose.`;
     return json({ error: e instanceof Error ? e.message : "Unknown error" }, 500, origin);
   }
 });
-
-function json(body: unknown, status = 200, origin = "") {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { ...corsHeaders(origin), "Content-Type": "application/json" },
-  });
-}

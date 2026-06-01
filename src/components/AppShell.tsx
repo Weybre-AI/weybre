@@ -3,7 +3,7 @@ import { Link, NavLink, useLocation, useNavigate } from "react-router-dom";
 import {
   FileText, FolderOpen, Settings as SettingsIcon, LogOut, Search, ShieldCheck,
   LayoutDashboard, Sparkles, Gavel, Inbox, Building2, ChevronsUpDown, Check, KeyRound,
-  ScrollText, Menu,
+  ScrollText, Menu, FileSearch
 } from "lucide-react";
 import { Logo } from "@/components/Logo";
 import { useAuth } from "@/hooks/useAuth";
@@ -24,6 +24,7 @@ const NAV = [
   { to: "/app/decide", label: "Decision Engine", icon: Sparkles },
   { to: "/app/litigation", label: "Litigation Intel", icon: Gavel },
   { to: "/app/intake", label: "Contract Intake", icon: Inbox },
+  { to: "/app/diligence", label: "Diligence", icon: FileSearch },
   { to: "/app/matters", label: "Matters", icon: FolderOpen },
   { to: "/app/drafts", label: "Drafts", icon: FileText },
   { to: "/app/organizations", label: "Organizations", icon: Building2 },
@@ -194,8 +195,16 @@ export const AppShell = forwardRef<HTMLDivElement, { children: ReactNode; title?
 
   useEffect(() => {
     if (loading || isAdmin) return;
-    const exempt = ["/pricing", "/onboarding"].includes(location.pathname);
-    if (!isActive && !exempt) {
+    
+    // Public routes that don't require an active subscription even if inside /app (rare) or top-level.
+    // Index, Auth, Features, Legal, etc. are NOT wrapped in AppShell normally, but AppShell is used in /app.
+    const EXEMPT_ROUTES = ["/pricing", "/onboarding"];
+    const isExempt = EXEMPT_ROUTES.includes(location.pathname);
+    
+    // Only restrict access to /app routes for inactive users.
+    const isAppRoute = location.pathname.startsWith("/app") || location.pathname.startsWith("/admin");
+    
+    if (!isActive && isAppRoute && !isExempt) {
       navigate("/pricing", { replace: true });
     }
   }, [loading, sub, isActive, isAdmin, location.pathname, navigate]);

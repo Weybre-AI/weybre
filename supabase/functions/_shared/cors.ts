@@ -10,9 +10,11 @@ const BASE_ALLOWED_ORIGINS = [
   "https://id-preview--7f0b347e-d0d5-4f1c-a925-0908a1587e4f.lovable.app",
   // Local development — all variants the browser might send
   "http://localhost:8080",
+  "http://localhost:8081",
   "http://localhost:3000",
   "http://localhost:5173",
   "http://127.0.0.1:8080",
+  "http://127.0.0.1:8081",
   "http://127.0.0.1:3000",
   "http://127.0.0.1:5173",
 ];

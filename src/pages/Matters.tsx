@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { Link } from "react-router-dom";
 import { AppShell } from "@/components/AppShell";
 import { Button } from "@/components/ui/button";
@@ -13,7 +13,7 @@ import { toast } from "sonner";
 
 const Matters = () => {
   const { user } = useAuth();
-  const [matters, setMatters] = useState<any[]>([]);
+  const [matters, setMatters] = useState<Record<string, unknown>[]>([]);
   const [loading, setLoading] = useState(true);
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
@@ -21,13 +21,13 @@ const Matters = () => {
   const [description, setDescription] = useState("");
   const [creating, setCreating] = useState(false);
 
-  const load = async () => {
+  const load = useCallback(async () => {
     if (!user) return;
     const { data } = await supabase.from("matters").select("*").eq("user_id", user.id).order("created_at", { ascending: false });
     setMatters(data ?? []);
     setLoading(false);
-  };
-  useEffect(() => { load(); }, [user]);
+  }, [user]);
+  useEffect(() => { load(); }, [load]);
 
   const create = async () => {
     if (!user || !name.trim()) return;

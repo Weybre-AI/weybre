@@ -1,29 +1,29 @@
 // deploy: 20260522151723
 // Contract Intake & Classification Agent v2
+/* eslint-disable @typescript-eslint/no-explicit-any */
 // Structure-first extraction: preserves clause logic (actor, trigger, condition,
 // consequence), conditionality anchors ("as a result of such default"), missing
 // placeholders, and separates Layer 1 (facts) from Layer 2 (risk inference)
 // from Layer 3 (jurisdiction commentary). Verbatim quotes are required for
 // every structured clause so the lawyer can verify before relying on output.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
+import { z } from "https://deno.land/x/zod@v3.22.4/mod.ts";
 
-import { corsHeaders, handleOptions } from "../_shared/cors.ts";
-import { getUser } from "../_shared/auth.ts";
+import { handleOptions, json } from "../_shared/cors.ts";
+import { getUser, requireEnv } from "../_shared/auth.ts";
 import { chatCompletion, MODELS } from "../_shared/ai.ts";
 import { deductCredits, validateInputSize, checkRateLimit } from "../_shared/credits.ts";
+import { logError, logInfo } from "../_shared/logger.ts";
 
-const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
-const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-const GOOGLE_AI_API_KEY = Deno.env.get("GOOGLE_AI_API_KEY")!;
+const RequestSchema = z.object({
+  contractId: z.string().uuid("Invalid contract ID"),
+});
+
+const SUPABASE_URL = requireEnv("SUPABASE_URL");
+const SERVICE_ROLE = requireEnv("SUPABASE_SERVICE_ROLE_KEY");
+const GOOGLE_AI_API_KEY = requireEnv("GOOGLE_AI_API_KEY");
 
 const CONFIDENCE_THRESHOLD = 0.78;
-
-function json(body: unknown, status = 200, origin = "") {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { ...corsHeaders(origin), "Content-Type": "application/json" },
-  });
-}
 
 const DOC_TYPES = [
   "NDA", "SaaS Agreement", "Vendor Agreement", "Employment Contract",
@@ -128,9 +128,13 @@ Deno.serve(async (req) => {
     const user = await getUser(auth);
     if (!user) return json({ error: "Unauthorized" }, 401, origin);
 
-    const body = await req.json().catch(() => ({}));
-    const contractId: string | undefined = body?.contractId;
-    if (!contractId) return json({ error: "contractId required" }, 400, origin);
+    const rawBody = await req.json().catch(() => ({}));
+    const parseResult = RequestSchema.safeParse(rawBody);
+    if (!parseResult.success) {
+      logError("Validation failed", parseResult.error);
+      return json({ error: parseResult.error.errors[0]?.message ?? "Invalid request body" }, 400, origin);
+    }
+    const { contractId } = parseResult.data;
 
     // Security: Rate limiting
     const rateCheck = checkRateLimit(user.id, 10, 60000);
@@ -189,10 +193,10 @@ Deno.serve(async (req) => {
     }
 
     const j = r;
-    const raw: string = j.choices?.[0]?.message?.content ?? "{}";
+    const content = j.choices?.[0]?.message?.content ?? "{}";
     let parsed: any = {};
-    try { parsed = JSON.parse(raw); } catch {
-      const m = raw.match(/\{[\s\S]*\}/);
+    try { parsed = JSON.parse(content); } catch {
+      const m = content.match(/\{[\s\S]*\}/);
       if (m) parsed = JSON.parse(m[0]);
     }
 
@@ -215,11 +219,11 @@ Deno.serve(async (req) => {
       missingFields.length > 0;
 
     const partiesNames = Array.isArray(parsed.parties)
-      ? parsed.parties.map((p: any) => (typeof p === "string" ? p : p?.name)).filter(Boolean)
+      ? (parsed.parties as any[]).map((p: any) => (typeof p === "string" ? p : p?.name)).filter(Boolean)
       : [];
 
     const riskReasons = Array.isArray(parsed.risk_assessments)
-      ? parsed.risk_assessments
+      ? (parsed.risk_assessments as any[])
           .filter((r: any) => r?.issue)
           .map((r: any) => `[${r.severity ?? "MED"}] ${r.issue}${r.clause_id ? ` (clause ${r.clause_id})` : ""}`)
       : [];

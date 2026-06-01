@@ -9,9 +9,9 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "webhook-id, webhook-signature, webhook-timestamp, content-type",
 };
 
-const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
-const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-const DODO_WEBHOOK_KEY = Deno.env.get("DODO_PAYMENTS_WEBHOOK_KEY")!;
+const SUPABASE_URL = requireEnv("SUPABASE_URL");
+const SERVICE_ROLE = requireEnv("SUPABASE_SERVICE_ROLE_KEY");
+const DODO_WEBHOOK_KEY = requireEnv("DODO_PAYMENTS_WEBHOOK_KEY");
 
 // Replay-attack window: reject webhooks older than 5 minutes
 const WEBHOOK_TOLERANCE_SECONDS = 300;
@@ -117,7 +117,7 @@ Deno.serve(async (req) => {
       await admin.from("subscriptions").upsert({
         user_id: userIdFromMeta,
         plan: planFromMeta ?? "solo",
-        status: (updates.status as any) ?? "incomplete",
+        status: (updates.status as unknown) ?? "incomplete",
         ...updates,
       }, { onConflict: "user_id" });
     }

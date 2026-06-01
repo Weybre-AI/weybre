@@ -3,14 +3,14 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 
 import { handleOptions, json } from "../_shared/cors.ts";
-import { getUser } from "../_shared/auth.ts";
+import { getUser, requireEnv } from "../_shared/auth.ts";
 import { chatCompletion, MODELS } from "../_shared/ai.ts";
 import { deductCredits, checkRateLimit } from "../_shared/credits.ts";
 
-const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
-const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-const GOOGLE_AI_API_KEY = Deno.env.get("GOOGLE_AI_API_KEY")!;
-const TAVILY_API_KEY = Deno.env.get("TAVILY_API_KEY")!;
+const SUPABASE_URL = requireEnv("SUPABASE_URL");
+const SUPABASE_SERVICE_ROLE_KEY = requireEnv("SUPABASE_SERVICE_ROLE_KEY");
+const GOOGLE_AI_API_KEY = requireEnv("GOOGLE_AI_API_KEY");
+const TAVILY_API_KEY = requireEnv("TAVILY_API_KEY");
 
 interface WebSource {
   n: number;
@@ -44,9 +44,9 @@ Deno.serve(async (req) => {
     if (query.length < 3) return json({ error: "Query must be at least 3 characters" }, 400, origin);
     const userDocs: Array<{ name: string; text: string }> = Array.isArray(body.userContext)
       ? body.userContext
-          .filter((d: any) => d && typeof d.text === "string" && d.text.trim().length > 0)
+          .filter((d: unknown) => d && typeof d.text === "string" && d.text.trim().length > 0)
           .slice(0, 6)
-          .map((d: any) => ({ name: String(d.name ?? "User document").slice(0, 120), text: String(d.text).slice(0, 12000) }))
+          .map((d: unknown) => ({ name: String(d.name ?? "User document").slice(0, 120), text: String(d.text).slice(0, 12000) }))
       : [];
     if (!TAVILY_API_KEY) return json({ error: "Tavily API key is not configured" }, 500, origin);
 
@@ -135,7 +135,7 @@ Hard rules: never invent facts, statutes or case names. Prefer authoritative Ind
       : "";
     const userPrompt = `QUESTION: ${query}${userDocsBlock}\n\nREAL WEB SEARCH RESULTS FROM TAVILY:\n\n${sourceContext}\n\nGround the answer in the user's documents (when relevant) and the web sources. Use [n] for web sources and [U#] for user documents. Never invent sources.`;
 
-    let j: any;
+    let j: unknown;
     try {
       j = await chatCompletion(GOOGLE_AI_API_KEY, {
         model: MODELS.FLASH,
@@ -144,7 +144,7 @@ Hard rules: never invent facts, statutes or case names. Prefer authoritative Ind
           { role: "user", content: userPrompt },
         ],
       });
-    } catch (aiErr: any) {
+    } catch (aiErr: unknown) {
       return json({ error: aiErr.message ?? "Web search failed" }, aiErr.status ?? 500, origin);
     }
     const choice = j.choices?.[0];

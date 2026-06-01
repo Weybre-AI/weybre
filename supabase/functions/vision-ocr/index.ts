@@ -3,13 +3,13 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 
 import { handleOptions, json } from "../_shared/cors.ts";
-import { getUser } from "../_shared/auth.ts";
+import { getUser, requireEnv } from "../_shared/auth.ts";
 import { chatCompletion, MODELS } from "../_shared/ai.ts";
 import { deductCredits, checkRateLimit } from "../_shared/credits.ts";
 
-const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
-const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-const GOOGLE_AI_API_KEY = Deno.env.get("GOOGLE_AI_API_KEY")!;
+const SUPABASE_URL = requireEnv("SUPABASE_URL");
+const SUPABASE_SERVICE_ROLE_KEY = requireEnv("SUPABASE_SERVICE_ROLE_KEY");
+const GOOGLE_AI_API_KEY = requireEnv("GOOGLE_AI_API_KEY");
 
 const MAX_IMAGES = 12;
 const MAX_IMAGE_BYTES = 4 * 1024 * 1024;

@@ -17,6 +17,11 @@ export interface OrgMembership extends Organization {
   role: OrgRole;
 }
 
+interface OrgMemberWithOrg {
+  role: OrgRole;
+  organization: Organization;
+}
+
 interface Ctx {
   loading: boolean;
   orgs: OrgMembership[];
@@ -52,14 +57,14 @@ export const OrganizationsProvider = ({ children }: { children: ReactNode }) => 
   const refresh = useCallback(async () => {
     if (!user) { setOrgs([]); setLoading(false); return; }
     setLoading(true);
-    const { data, error } = await (supabase as any)
+    const { data, error } = await supabase
       .from("organization_members")
       .select("role, organization:organizations(id,name,slug,plan,created_by,created_at)")
       .eq("user_id", user.id);
     if (error) { console.error(error); setOrgs([]); setLoading(false); return; }
     const list: OrgMembership[] = (data ?? [])
-      .filter((r: any) => r.organization)
-      .map((r: any) => ({ ...r.organization, role: r.role as OrgRole }));
+      .filter((r: OrgMemberWithOrg) => r.organization)
+      .map((r: OrgMemberWithOrg) => ({ ...r.organization, role: r.role as OrgRole }));
     setOrgs(list);
     setLoading(false);
   }, [user]);
@@ -84,7 +89,7 @@ export const OrganizationsProvider = ({ children }: { children: ReactNode }) => 
     if (!user) return null;
     const base = slugify(name);
     const slug = `${base}-${Math.random().toString(36).slice(2, 7)}`;
-    const { data, error } = await (supabase as any)
+    const { data, error } = await supabase
       .from("organizations")
       .insert({ name: name.trim(), slug, created_by: user.id })
       .select("id,name,slug,plan,created_by,created_at")

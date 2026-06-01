@@ -19,7 +19,7 @@ export async function deductCredits(
   admin: SupabaseClient,
   userId: string,
   action: string,
-  metadata: Record<string, any> = {}
+  metadata: Record<string, unknown> = {}
 ): Promise<CreditCheckResult> {
   try {
     const { data, error } = await admin.rpc("deduct_credits", {

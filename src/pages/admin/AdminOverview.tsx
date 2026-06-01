@@ -17,19 +17,22 @@ const AdminOverview = () => {
   const [limit, setLimit] = useState(50);
   const [withEmbed, setWithEmbed] = useState(false);
   const [running, setRunning] = useState(false);
-  const [lastResult, setLastResult] = useState<any>(null);
+  const [lastResult, setLastResult] = useState<unknown>(null);
 
   async function loadStats() {
     const monthStart = new Date(); monthStart.setDate(1); monthStart.setHours(0, 0, 0, 0);
-    const [{ count: users }, { data: subs }, { count: queries }, { count: drafts }, { count: judgments }] = await Promise.all([
+    const [{ count: users }, { data: subs }, { count: queries }, { count: drafts }, { count: judgments }, { data: plans }] = await Promise.all([
       supabase.from("profiles").select("*", { count: "exact", head: true }),
       supabase.from("subscriptions").select("plan,status"),
       supabase.from("usage_events").select("*", { count: "exact", head: true }).eq("event_type", "research_query").gte("created_at", monthStart.toISOString()),
       supabase.from("drafts").select("*", { count: "exact", head: true }),
       supabase.from("judgments").select("*", { count: "exact", head: true }),
+      supabase.from("billing_plans").select("id, price_monthly"),
     ]);
+
     const active = subs?.filter((s) => s.status === "active").length ?? 0;
-    const mrr = (subs ?? []).reduce((acc, s) => acc + (s.status === "active" ? (s.plan === "firm" ? 2499 : 999) : 0), 0);
+    const planMap = (plans ?? []).reduce((acc, p) => ({ ...acc, [p.id]: p.price_monthly }), {} as Record<string, number>);
+    const mrr = (subs ?? []).reduce((acc, s) => acc + (s.status === "active" ? (planMap[s.plan] ?? 0) : 0), 0);
     setStats({ users: users ?? 0, active, mrr, queries: queries ?? 0, drafts: drafts ?? 0, judgments: judgments ?? 0 });
   }
 
@@ -52,7 +55,7 @@ const AdminOverview = () => {
       if (autoAdvance && data?.processed > 0 && data?.next_offset != null && (data?.total == null || data.next_offset < data.total)) {
         setTimeout(() => void runSync(true), 600);
       }
-    } catch (e: any) {
+    } catch (e: unknown) {
       toast.error(e?.message ?? "Sync failed");
     } finally {
       setRunning(false);

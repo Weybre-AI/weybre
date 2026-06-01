@@ -138,7 +138,7 @@ const features: Record<string, Feature> = {
   },
 };
 
-export const featureList = Object.entries(features).map(([slug, f]) => ({ slug, ...f }));
+const featureList = Object.entries(features).map(([slug, f]) => ({ slug, ...f }));
 
 const Features = () => {
   const { slug } = useParams<{ slug: string }>();

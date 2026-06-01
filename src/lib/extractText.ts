@@ -2,6 +2,7 @@ import * as pdfjsLib from "pdfjs-dist";
 import pdfWorker from "pdfjs-dist/build/pdf.worker.mjs?url";
 import mammoth from "mammoth/mammoth.browser";
 import { invokeFunction } from "@/lib/invokeFunction";
+import { type PDFPageProxy, type TextItem } from "pdfjs-dist/types/src/display/api";
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorker;
 
@@ -21,7 +22,7 @@ function looksLikeMojibake(s: string): boolean {
   return printable / total < 0.3;
 }
 
-async function pdfPageToPng(page: any, scale = 1.6): Promise<string> {
+async function pdfPageToPng(page: PDFPageProxy, scale = 1.6): Promise<string> {
   const viewport = page.getViewport({ scale });
   const canvas = document.createElement("canvas");
   canvas.width = Math.ceil(viewport.width);
@@ -85,7 +86,7 @@ export async function extractTextFromFile(file: File, opts: ExtractOptions = {})
     for (let n = 1; n <= pageCount; n += 1) {
       const page = await pdf.getPage(n);
       const text = await page.getTextContent();
-      pages.push(text.items.map((it: any) => it.str).join(" "));
+      pages.push(text.items.map((it) => (it as TextItem).str).join(" "));
     }
     const native = pages.join("\n\n").slice(0, MAX_CHARS);
 

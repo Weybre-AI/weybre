@@ -10,6 +10,8 @@ import { useAuth } from "@/hooks/useAuth";
 import { toast } from "sonner";
 import { Loader2, Mail, Lock } from "lucide-react";
 
+const redirectBase = import.meta.env.PROD ? "https://weybre.com" : window.location.origin;
+
 const Auth = () => {
   const [params] = useSearchParams();
   const initialMode = params.get("mode") === "signup" ? "signup" : "signin";
@@ -38,7 +40,7 @@ const Auth = () => {
       if (mode === "signup") {
         const { error } = await supabase.auth.signUp({
           email, password,
-          options: { data: { full_name: fullName }, emailRedirectTo: `${window.location.origin}/onboarding` },
+          options: { data: { full_name: fullName }, emailRedirectTo: `${redirectBase}/onboarding` },
         });
         if (error) throw error;
         toast.success("Welcome to Weybre AI", { description: "Let's get your workspace set up." });
@@ -47,8 +49,8 @@ const Auth = () => {
         if (error) throw error;
         toast.success("Welcome back");
       }
-    } catch (err: any) {
-      toast.error(err?.message ?? "Authentication failed");
+    } catch (err) {
+      toast.error((err as Error)?.message ?? "Authentication failed");
     } finally {
       setLoading(false);
     }
@@ -63,19 +65,7 @@ const Auth = () => {
     if (error) { toast.error(error.message); setLoading(false); }
   };
 
-  const handleMicrosoft = async () => {
-    setLoading(true);
-    const { error } = await supabase.auth.signInWithOAuth({
-      provider: "azure",
-      options: {
-        // Request offline_access so Supabase stores a refresh token we can use
-        // for Graph API calls (OneDrive, Outlook Calendar) after sign-in.
-        scopes: "email openid profile offline_access Files.ReadWrite Calendars.ReadWrite Sites.ReadWrite.All Team.ReadBasic.All ChannelMessage.Send",
-        redirectTo: `${window.location.origin}/onboarding`,
-      },
-    });
-    if (error) { toast.error(error.message); setLoading(false); }
-  };
+
 
   const handleSso = async () => {
     const domain = email.split("@")[1]?.toLowerCase().trim();
@@ -90,22 +80,22 @@ const Auth = () => {
         const { error: oauthErr } = await supabase.auth.signInWithOAuth({
           provider: "google",
           options: {
-            redirectTo: `${window.location.origin}/onboarding`,
+            redirectTo: `${redirectBase}/onboarding`,
             queryParams: { hd: cfg.email_domain, prompt: "select_account" },
           },
         });
         if (oauthErr) throw oauthErr;
       } else if (cfg.provider === "saml") {
-        const { error: ssoErr } = await (supabase.auth as any).signInWithSSO({
+        const { error: ssoErr } = await supabase.auth.signInWithSSO({
           domain: cfg.email_domain,
-          options: { redirectTo: `${window.location.origin}/onboarding` },
+          options: { redirectTo: `${redirectBase}/onboarding` },
         });
         if (ssoErr) throw ssoErr;
       } else {
         toast.error("Unsupported SSO provider: " + cfg.provider);
       }
-    } catch (e: any) {
-      toast.error(e?.message ?? "SSO sign-in failed");
+    } catch (e) {
+      toast.error((e as Error)?.message ?? "SSO sign-in failed");
     } finally {
       setLoading(false);
     }
@@ -127,16 +117,7 @@ const Auth = () => {
             <svg className="h-4 w-4" viewBox="0 0 24 24"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.76h3.56c2.08-1.92 3.28-4.74 3.28-8.09Z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.56-2.76c-.98.66-2.24 1.06-3.72 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84A11 11 0 0 0 12 23Z"/><path fill="#FBBC05" d="M5.84 14.11A6.6 6.6 0 0 1 5.5 12c0-.73.13-1.44.34-2.11V7.05H2.18A11 11 0 0 0 1 12c0 1.78.43 3.46 1.18 4.95l3.66-2.84Z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.05l3.66 2.84C6.71 7.31 9.14 5.38 12 5.38Z"/></svg>
             Continue with Google
           </Button>
-          <Button onClick={handleMicrosoft} variant="outline" className="mt-2 w-full" disabled={loading}>
-            {/* Microsoft logo */}
-            <svg className="h-4 w-4" viewBox="0 0 21 21" xmlns="http://www.w3.org/2000/svg">
-              <rect x="1" y="1" width="9" height="9" fill="#f25022"/>
-              <rect x="11" y="1" width="9" height="9" fill="#7fba00"/>
-              <rect x="1" y="11" width="9" height="9" fill="#00a4ef"/>
-              <rect x="11" y="11" width="9" height="9" fill="#ffb900"/>
-            </svg>
-            Continue with Microsoft
-          </Button>
+
           <Button onClick={handleSso} variant="outline" className="mt-2 w-full" disabled={loading}>
             <Lock className="h-4 w-4" />
             Sign in with Enterprise SSO

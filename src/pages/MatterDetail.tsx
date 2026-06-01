@@ -2,30 +2,20 @@ import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { AppShell } from "@/components/AppShell";
 import { useAuth } from "@/hooks/useAuth";
-import { useM365 } from "@/hooks/useM365";
 import { supabase } from "@/integrations/supabase/client";
-import { ArrowLeft, BookOpen, FileText, Loader2, FileDown, Calendar } from "lucide-react";
+import { ArrowLeft, BookOpen, FileText, Loader2, FileDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { AiDisclaimer } from "@/components/AiDisclaimer";
 import { toast } from "sonner";
 
 const MatterDetail = () => {
   const { id } = useParams();
   const { user } = useAuth();
-  const { connected: m365Connected, createCalendarEvent, connectMicrosoft } = useM365();
-  const [matter, setMatter] = useState<any>(null);
-  const [notes, setNotes] = useState<any[]>([]);
-  const [drafts, setDrafts] = useState<any[]>([]);
+  const [matter, setMatter] = useState<unknown>(null);
+  const [notes, setNotes] = useState<unknown[]>([]);
+  const [drafts, setDrafts] = useState<unknown[]>([]);
   const [loading, setLoading] = useState(true);
   const [exporting, setExporting] = useState(false);
-  const [calendarOpen, setCalendarOpen] = useState(false);
-  const [hearingDate, setHearingDate] = useState("");
-  const [hearingTime, setHearingTime] = useState("10:00");
-  const [hearingLocation, setHearingLocation] = useState("");
-  const [syncingCalendar, setSyncingCalendar] = useState(false);
 
   useEffect(() => {
     if (!user || !id) return;
@@ -36,7 +26,11 @@ const MatterDetail = () => {
         supabase.from("drafts").select("*").eq("matter_id", id).order("created_at", { ascending: false }),
       ]);
       setMatter(m); setNotes(n ?? []); setDrafts(d ?? []); setLoading(false);
-    })();
+    })().catch(err => {
+      console.error("Matter detail load error:", err);
+      toast.error("Failed to load matter");
+      setLoading(false);
+    });
   }, [id, user]);
 
   const exportMatter = async () => {
@@ -51,48 +45,9 @@ const MatterDetail = () => {
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a"); a.href = url; a.download = `${matter?.name ?? "matter"}.pdf`; a.click();
       URL.revokeObjectURL(url);
-    } catch (err: any) {
+    } catch (err: unknown) {
       toast.error("Export failed", { description: err?.message });
     } finally { setExporting(false); }
-  };
-
-  const syncHearingToCalendar = async () => {
-    if (!hearingDate) { toast.error("Select a hearing date"); return; }
-    if (!m365Connected) {
-      toast.info("Connecting to Microsoft 365…");
-      connectMicrosoft();
-      return;
-    }
-    setSyncingCalendar(true);
-    try {
-      const startDt = `${hearingDate}T${hearingTime}:00`;
-      // Default hearing duration: 1 hour
-      const [h, m] = hearingTime.split(":").map(Number);
-      const endHour = String(h + 1).padStart(2, "0");
-      const endDt = `${hearingDate}T${endHour}:${String(m).padStart(2, "0")}:00`;
-
-      const webLink = await createCalendarEvent({
-        subject: `Hearing — ${matter.name}${matter.client ? ` (${matter.client})` : ""}`,
-        body: `Matter: ${matter.name}\nClient: ${matter.client ?? "—"}\n\nCreated by Weybre AI`,
-        start: startDt,
-        end: endDt,
-        location: hearingLocation || undefined,
-        timeZone: "Asia/Kolkata",
-        matterId: id,
-      });
-
-      toast.success("Added to Outlook Calendar", {
-        action: { label: "Open", onClick: () => window.open(webLink, "_blank", "noopener,noreferrer") },
-      });
-      setCalendarOpen(false);
-      setHearingDate("");
-      setHearingTime("10:00");
-      setHearingLocation("");
-    } catch (err: any) {
-      toast.error("Calendar sync failed", { description: err?.message });
-    } finally {
-      setSyncingCalendar(false);
-    }
   };
 
   if (loading) return <AppShell><div className="flex h-screen items-center justify-center"><Loader2 className="h-5 w-5 animate-spin" /></div></AppShell>;
@@ -109,52 +64,12 @@ const MatterDetail = () => {
             {matter.description && <p className="mt-3 max-w-2xl text-sm text-muted-foreground">{matter.description}</p>}
           </div>
           <div className="flex flex-wrap gap-2 shrink-0">
-          <Button variant="outline" onClick={exportMatter} disabled={exporting}>
-            {exporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileDown className="h-4 w-4" />}
-            Export PDF
-          </Button>
-          <Button variant="outline" onClick={() => setCalendarOpen(true)} title={m365Connected ? "Add hearing to Outlook Calendar" : "Connect Microsoft 365 to sync hearings"}>
-            <Calendar className="h-4 w-4" />
-            Outlook
-          </Button>
+            <Button variant="outline" onClick={exportMatter} disabled={exporting}>
+              {exporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileDown className="h-4 w-4" />}
+              Export PDF
+            </Button>
           </div>
         </div>
-
-        {/* Outlook Calendar dialog */}
-        <Dialog open={calendarOpen} onOpenChange={setCalendarOpen}>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle className="font-serif">Add hearing to Outlook Calendar</DialogTitle>
-              <DialogDescription>Creates an event in your Microsoft Outlook calendar for this matter.</DialogDescription>
-            </DialogHeader>
-            <div className="space-y-4">
-              <div className="space-y-1.5">
-                <Label htmlFor="hearing-date">Hearing date</Label>
-                <Input id="hearing-date" type="date" value={hearingDate} onChange={e => setHearingDate(e.target.value)} />
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="hearing-time">Time (IST)</Label>
-                <Input id="hearing-time" type="time" value={hearingTime} onChange={e => setHearingTime(e.target.value)} />
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="hearing-location">Court / location (optional)</Label>
-                <Input id="hearing-location" placeholder="e.g. Delhi High Court, Court No. 5" value={hearingLocation} onChange={e => setHearingLocation(e.target.value)} />
-              </div>
-              {!m365Connected && (
-                <p className="rounded-md border border-border bg-muted/50 px-3 py-2 text-xs text-muted-foreground">
-                  You'll be redirected to sign in with Microsoft to connect your Outlook calendar.
-                </p>
-              )}
-            </div>
-            <DialogFooter>
-              <Button variant="outline" onClick={() => setCalendarOpen(false)}>Cancel</Button>
-              <Button onClick={syncHearingToCalendar} disabled={syncingCalendar || !hearingDate}>
-                {syncingCalendar && <Loader2 className="h-4 w-4 animate-spin" />}
-                {m365Connected ? "Add to Calendar" : "Connect & Add"}
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
 
         <section className="mt-10">
           <h2 className="mb-4 flex items-center gap-2 font-serif text-xl font-semibold text-primary"><BookOpen className="h-4 w-4 text-accent" /> Research notes ({notes.length})</h2>

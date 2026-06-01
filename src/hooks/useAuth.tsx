@@ -1,6 +1,7 @@
 import { useEffect, useState, createContext, useContext, ReactNode } from "react";
 import { Session, User } from "@supabase/supabase-js";
 import { supabase } from "@/integrations/supabase/client";
+import { toast } from "sonner";
 
 interface AuthContextValue {
   session: Session | null;
@@ -29,8 +30,17 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         // Fire-and-forget JIT provisioning: if user's email domain matches an org SSO config,
         // they're added as a member with the configured default role.
         setTimeout(() => {
-          (supabase as any).rpc("sso_jit_provision").then(({ error }: any) => {
-            if (error) console.warn("sso_jit_provision:", error.message);
+          supabase.rpc("sso_jit_provision").then(({ error }) => {
+            if (error) {
+              console.warn("sso_jit_provision:", error.message);
+              // Only toast if it's a real error, not just "no matching domain"
+              if (!error.message.includes("no rows") && !error.message.includes("NULL")) {
+                toast.error("SSO provisioning failed. Please contact your admin.");
+              }
+            } else {
+              // Successfully provisioned
+              toast.success("Welcome! You've been automatically added to your organization.");
+            }
           });
         }, 0);
       }

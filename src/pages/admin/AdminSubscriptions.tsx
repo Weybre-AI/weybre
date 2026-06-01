@@ -40,7 +40,7 @@ const AdminSubscriptions = () => {
       if (error) throw error;
       toast.success("Subscription cancelled");
       await load();
-    } catch (e: any) {
+    } catch (e: unknown) {
       toast.error(e?.message ?? "Failed to cancel");
     } finally {
       setBusy(null);

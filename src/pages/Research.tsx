@@ -120,7 +120,7 @@ const Research = () => {
         const text = await extractTextFromFile(f, { ocrFallback: true });
         if (!text.trim()) throw new Error("No readable text extracted");
         setAttachments(prev => prev.map(a => a.id === id ? { ...a, status: "ready", text } : a));
-      } catch (e: any) {
+      } catch (e: unknown) {
         setAttachments(prev => prev.map(a => a.id === id ? { ...a, status: "error", error: e?.message ?? "Extract failed" } : a));
         toast.error(`Couldn't read ${f.name}`, { description: e?.message ?? "Try another file." });
       }
@@ -179,7 +179,7 @@ const Research = () => {
         setAnswer(data?.answer ?? "");
         setWebSources(data?.sources ?? []);
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
       const msg = err?.message ?? "Research failed";
       if (msg.includes("rate") || msg.includes("429")) {
         toast.error("AI is busy", { description: "Please retry in a moment." });
@@ -210,7 +210,7 @@ const Research = () => {
       matter_id: matterId || null,
       query,
       answer,
-      citations: citationsPayload as any,
+      citations: citationsPayload as unknown,
     });
     if (error) { toast.error(error.message); setSaving(false); return; }
     toast.success("Saved to matter");
@@ -233,7 +233,7 @@ const Research = () => {
             key={i}
             onClick={() => document.getElementById(`cite-${idx}`)?.scrollIntoView({ behavior: "smooth", block: "center" })}
             className="citation-chip mx-0.5 align-baseline"
-            title={(target as any)?.title ?? `Source ${m[1]}`}
+            title={(target as unknown)?.title ?? `Source ${m[1]}`}
           >
             [{m[1]}]
           </button>
@@ -419,7 +419,7 @@ const Research = () => {
                   </span>
                 </div>
                 <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
-                  {(resultMode === "case-law" ? citations : webSources).slice(0, 4).map((s: any, i) => (
+                  {(resultMode === "case-law" ? citations : webSources).slice(0, 4).map((s: unknown, i) => (
                     <button
                       key={i}
                       onClick={() => document.getElementById(`cite-${i}`)?.scrollIntoView({ behavior: "smooth", block: "center" })}
@@ -456,7 +456,7 @@ const Research = () => {
                       subtitle: resultMode === "web" ? "Web research" : "Case-law research",
                       query,
                       body: answer,
-                      sources: (resultMode === "case-law" ? citations : webSources).map((s: any, i) => ({
+                      sources: (resultMode === "case-law" ? citations : webSources).map((s: unknown, i) => ({
                         n: i + 1,
                         title: s.title,
                         url: s.url,

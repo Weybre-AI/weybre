@@ -10,13 +10,19 @@ import { Loader2, Trash2, ShieldCheck } from "lucide-react";
 import { toast } from "sonner";
 import { useNavigate } from "react-router-dom";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { M365IntegrationPanel } from "@/components/M365IntegrationPanel";
+
+interface UserProfile {
+  full_name: string | null;
+  firm_name: string | null;
+  bar_council_number: string | null;
+  phone: string | null;
+}
 
 const Settings = () => {
   const { user, signOut } = useAuth();
   const { sub } = useSubscription();
   const nav = useNavigate();
-  const [profile, setProfile] = useState<any>(null);
+  const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
@@ -26,7 +32,7 @@ const Settings = () => {
   useEffect(() => {
     if (!user) return;
     supabase.from("profiles").select("*").eq("id", user.id).maybeSingle().then(({ data }) => {
-      setProfile(data); setLoading(false);
+      setProfile(data as UserProfile); setLoading(false);
     });
   }, [user]);
 
@@ -41,10 +47,35 @@ const Settings = () => {
     if (error) toast.error(error.message); else toast.success("Profile saved");
   };
 
+  const exportData = async () => {
+    if (!user) return;
+    try {
+      const [pRes, mRes, nRes, dRes] = await Promise.all([
+        supabase.from("profiles").select("*").eq("id", user.id).single(),
+        supabase.from("matters").select("*").eq("user_id", user.id),
+        supabase.from("research_notes").select("*").eq("user_id", user.id),
+        supabase.from("drafts").select("*").eq("user_id", user.id),
+      ]);
+      const data = {
+        profile: pRes.data,
+        matters: mRes.data,
+        notes: nRes.data,
+        drafts: dRes.data,
+        exported_at: new Date().toISOString()
+      };
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a"); a.href = url; a.download = `weybre_export_${new Date().toISOString().split("T")[0]}.json`; a.click();
+      URL.revokeObjectURL(url);
+      toast.success("Data export complete");
+    } catch (e) {
+      toast.error("Data export failed", { description: (e as Error)?.message });
+    }
+  };
+
   const deleteAll = async () => {
     if (!user) return;
     setDeleting(true);
-    // RLS-safe cascading: delete user-owned data; auth user removal happens via edge function in production.
     await Promise.all([
       supabase.from("drafts").delete().eq("user_id", user.id),
       supabase.from("research_notes").delete().eq("user_id", user.id),
@@ -71,15 +102,13 @@ const Settings = () => {
         <section className="rounded-xl border border-border bg-card p-6">
           <h2 className="font-serif text-lg font-semibold text-primary">Profile</h2>
           <div className="mt-4 grid gap-4 md:grid-cols-2">
-            <div className="space-y-1.5"><Label>Full name</Label><Input value={profile?.full_name ?? ""} onChange={e => setProfile({ ...profile, full_name: e.target.value })} /></div>
-            <div className="space-y-1.5"><Label>Firm</Label><Input value={profile?.firm_name ?? ""} onChange={e => setProfile({ ...profile, firm_name: e.target.value })} /></div>
-            <div className="space-y-1.5"><Label>Bar Council number</Label><Input value={profile?.bar_council_number ?? ""} onChange={e => setProfile({ ...profile, bar_council_number: e.target.value })} /></div>
-            <div className="space-y-1.5"><Label>Phone</Label><Input value={profile?.phone ?? ""} onChange={e => setProfile({ ...profile, phone: e.target.value })} /></div>
+            <div className="space-y-1.5"><Label>Full name</Label><Input value={profile?.full_name ?? ""} onChange={e => setProfile(p => p ? { ...p, full_name: e.target.value } : null)} /></div>
+            <div className="space-y-1.5"><Label>Firm</Label><Input value={profile?.firm_name ?? ""} onChange={e => setProfile(p => p ? { ...p, firm_name: e.target.value } : null)} /></div>
+            <div className="space-y-1.5"><Label>Bar Council number</Label><Input value={profile?.bar_council_number ?? ""} onChange={e => setProfile(p => p ? { ...p, bar_council_number: e.target.value } : null)} /></div>
+            <div className="space-y-1.5"><Label>Phone</Label><Input value={profile?.phone ?? ""} onChange={e => setProfile(p => p ? { ...p, phone: e.target.value } : null)} /></div>
           </div>
           <div className="mt-5 flex justify-end"><Button onClick={save} disabled={saving} className="bg-primary hover:bg-primary-glow">{saving && <Loader2 className="h-4 w-4 animate-spin" />}Save</Button></div>
         </section>
-
-        <M365IntegrationPanel />
 
         <section className="rounded-xl border border-border bg-card p-6">
           <h2 className="font-serif text-lg font-semibold text-primary">Subscription</h2>
@@ -96,9 +125,12 @@ const Settings = () => {
         </section>
 
         <section className="rounded-xl border border-destructive/30 bg-destructive/5 p-6">
-          <h2 className="font-serif text-lg font-semibold text-destructive">DPDP — Delete my data</h2>
-          <p className="mt-2 text-sm text-muted-foreground">Permanently delete your matters, research notes, drafts, and usage history. This cannot be undone.</p>
-          <Button variant="destructive" className="mt-4" onClick={() => setDeleteOpen(true)}><Trash2 className="h-4 w-4" /> Delete all my data</Button>
+          <h2 className="font-serif text-lg font-semibold text-destructive">DPDP — Data Privacy</h2>
+          <p className="mt-2 text-sm text-muted-foreground">Export your data in a machine-readable format, or permanently delete your matters, research notes, drafts, and usage history. Deletion cannot be undone.</p>
+          <div className="mt-4 flex flex-wrap items-center gap-3">
+            <Button variant="outline" onClick={exportData}>Export my data (JSON)</Button>
+            <Button variant="destructive" onClick={() => setDeleteOpen(true)}><Trash2 className="h-4 w-4" /> Delete all my data</Button>
+          </div>
         </section>
       </div>
 

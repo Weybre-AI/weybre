@@ -7,12 +7,12 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 
 import { handleOptions, json } from "../_shared/cors.ts";
-import { getUser } from "../_shared/auth.ts";
+import { getUser, requireEnv } from "../_shared/auth.ts";
 import { embed as googleEmbed } from "../_shared/ai.ts";
 
-const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
-const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-const GOOGLE_AI_API_KEY = Deno.env.get("GOOGLE_AI_API_KEY")!;
+const SUPABASE_URL = requireEnv("SUPABASE_URL");
+const SUPABASE_SERVICE_ROLE_KEY = requireEnv("SUPABASE_SERVICE_ROLE_KEY");
+const GOOGLE_AI_API_KEY = requireEnv("GOOGLE_AI_API_KEY");
 const HF_API = "https://datasets-server.huggingface.co";
 
 interface InRow {
@@ -41,7 +41,7 @@ function safeDate(s?: string | null): string | null {
   return isNaN(d.getTime()) ? null : d.toISOString().slice(0, 10);
 }
 
-function mapHfRow(raw: any): InRow {
+function mapHfRow(raw: unknown): InRow {
   const r = raw?.row ?? raw;
   return {
     external_id: r.case_metadata_id ?? null,
@@ -60,13 +60,13 @@ function mapHfRow(raw: any): InRow {
   };
 }
 
-async function upsertOne(admin: any, row: InRow, withEmbed: boolean) {
+async function upsertOne(admin: unknown, row: InRow, withEmbed: boolean) {
   let vec: number[] | null = null;
   if (withEmbed) {
     const text = [row.title, row.headnote, row.summary, row.full_text].filter(Boolean).join("\n\n");
     vec = await embed(text || row.title);
   }
-  const record: any = {
+  const record: unknown = {
     external_id: row.external_id ?? null,
     title: row.title,
     citation: row.citation ?? null,
@@ -136,8 +136,8 @@ Deno.serve(async (req) => {
         return json({ error: `HF fetch failed [${hfRes.status}]: ${t.slice(0, 500)}` }, 502, origin);
       }
       const hfJson = await hfRes.json();
-      const rawRows: any[] = hfJson.rows ?? [];
-      const results: any[] = [];
+      const rawRows: unknown[] = hfJson.rows ?? [];
+      const results: unknown[] = [];
       for (const raw of rawRows) {
         const row = mapHfRow(raw);
         results.push(await upsertOne(admin, row, withEmbed));
@@ -159,7 +159,7 @@ Deno.serve(async (req) => {
     if (!Array.isArray(rows) || rows.length === 0) return json({ error: "rows[] required" }, 400, origin);
     if (rows.length > 20) return json({ error: "Max 20 rows per batch" }, 400, origin);
 
-    const out: any[] = [];
+    const out: unknown[] = [];
     for (const row of rows) out.push(await upsertOne(admin, row, true));
     return json({ processed: out.length, results: out }, 200, origin);
   } catch (e) {

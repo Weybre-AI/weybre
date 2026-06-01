@@ -3,16 +3,26 @@
 // Pulls cases from Indian Kanoon API, then uses Google Gemini to synthesize
 // actionable guidance: extracted arguments, predicted outcome, recommended actions.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
+import { z } from "https://deno.land/x/zod@v3.22.4/mod.ts";
 
-import { corsHeaders, handleOptions } from "../_shared/cors.ts";
-import { getUser } from "../_shared/auth.ts";
-import { chatCompletion, MODELS } from "../_shared/ai.ts";
+import { handleOptions, json } from "../_shared/cors.ts";
+import { getUser, requireEnv } from "../_shared/auth.ts";
+import { chatCompletion, embed, MODELS } from "../_shared/ai.ts";
 import { deductCredits, validateInputSize, checkRateLimit } from "../_shared/credits.ts";
+import { logError, logInfo } from "../_shared/logger.ts";
 
-const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
-const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-const GOOGLE_AI_API_KEY = Deno.env.get("GOOGLE_AI_API_KEY")!;
-const IK_TOKEN = Deno.env.get("INDIAN_KANOON_API_TOKEN")!;
+const RequestSchema = z.object({
+  problem: z.string().optional().default(""),
+  contract: z.string().optional().default(""),
+  mode: z.enum(["guide", "predict", "contract"]).default("guide"),
+}).refine(data => data.problem.length >= 5 || data.contract.length >= 20, {
+  message: "Describe the problem (min 5 chars) or paste a contract clause (min 20 chars).",
+});
+
+const SUPABASE_URL = requireEnv("SUPABASE_URL");
+const SUPABASE_SERVICE_ROLE_KEY = requireEnv("SUPABASE_SERVICE_ROLE_KEY");
+const GOOGLE_AI_API_KEY = requireEnv("GOOGLE_AI_API_KEY");
+const IK_TOKEN = requireEnv("INDIAN_KANOON_API_TOKEN");
 
 const IK_BASE = "https://api.indiankanoon.org";
 
@@ -41,13 +51,13 @@ async function ikSearch(query: string, pagenum = 0): Promise<IKDoc[]> {
     console.error("IK search error", r.status, text.slice(0, 500));
     return [];
   }
-  let j: any;
+  let j: unknown;
   try { j = JSON.parse(text); } catch { console.error("IK non-JSON response", text.slice(0, 300)); return []; }
   console.log("IK search results:", j.docs?.length ?? 0, "for query:", query);
   return Array.isArray(j.docs) ? j.docs.slice(0, 8) : [];
 }
 
-async function ikDoc(tid: number): Promise<{ title?: string; doc?: string; citetid?: any[]; citedbytid?: any[] } | null> {
+async function ikDoc(tid: number): Promise<{ title?: string; doc?: string; citetid?: unknown[]; citedbytid?: unknown[] } | null> {
   const r = await fetch(`${IK_BASE}/doc/${tid}/`, {
     method: "POST",
     headers: { Authorization: `Token ${IK_TOKEN}` },
@@ -119,13 +129,13 @@ Deno.serve(async (req) => {
     // Fallback: pull from internal SC judgments corpus when IK returns nothing
     if (detailed.length === 0) {
       try {
-        const zero = new Array(1536).fill(0);
+        const queryEmbed = await embed(GOOGLE_AI_API_KEY, searchQuery) ?? new Array(1536).fill(0);
         const { data: rows } = await admin.rpc("search_judgments", {
           query_text: searchQuery,
-          query_embedding: `[${zero.join(",")}]`,
+          query_embedding: `[${queryEmbed.join(",")}]`,
           match_count: 6,
         });
-        for (const r of (rows ?? []) as any[]) {
+        for (const r of (rows ?? []) as unknown[]) {
           detailed.push({
             tid: 0,
             title: r.title,
@@ -177,7 +187,7 @@ Open with a 2-3 sentence direct answer. Then prose covering the key arguments th
       userPrompt = `USER PROBLEM:\n${problem}\n\nRETRIEVED INDIAN CASES (Indian Kanoon):\n${context}`;
     }
 
-    let aj: any;
+    let aj: unknown;
     try {
       aj = await chatCompletion(GOOGLE_AI_API_KEY, {
         model: MODELS.FLASH,
@@ -186,7 +196,7 @@ Open with a 2-3 sentence direct answer. Then prose covering the key arguments th
           { role: "user", content: userPrompt },
         ],
       });
-    } catch (aiErr: any) {
+    } catch (aiErr: unknown) {
       return json({ error: aiErr.message ?? "AI synthesis failed" }, aiErr.status ?? 500, origin);
     }
     const answer = aj.choices?.[0]?.message?.content ?? "No answer generated.";
@@ -209,10 +219,3 @@ Open with a 2-3 sentence direct answer. Then prose covering the key arguments th
     return json({ error: e instanceof Error ? e.message : "Unknown error" }, 500, origin);
   }
 });
-
-function json(body: unknown, status = 200, origin = "") {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { ...corsHeaders(origin), "Content-Type": "application/json" },
-  });
-}

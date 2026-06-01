@@ -19,4 +19,17 @@ export default defineConfig(({ mode }) => ({
     },
     dedupe: ["react", "react-dom", "react/jsx-runtime", "react/jsx-dev-runtime", "@tanstack/react-query", "@tanstack/query-core"],
   },
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          pdfjs: ["pdfjs-dist"],
+          "react-markdown": ["react-markdown"],
+          lucide: ["lucide-react"],
+          vendor: ["react", "react-dom", "react-router-dom", "@supabase/supabase-js", "@sentry/react"],
+        },
+      },
+    },
+    chunkSizeWarningLimit: 800,
+  },
 }));

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { AppShell } from "@/components/AppShell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -32,15 +32,10 @@ export default function Organizations() {
   const isAdmin = currentOrg?.role === "owner" || currentOrg?.role === "admin";
   const isOwner = currentOrg?.role === "owner";
 
-  useEffect(() => {
-    if (!currentOrg) { setMembers([]); setInvites([]); return; }
-    void loadOrg(currentOrg.id);
-  }, [currentOrg?.id]);
-
-  async function loadOrg(orgId: string) {
+  const loadOrg = useCallback(async (orgId: string) => {
     const [mRes, iRes] = await Promise.all([
-      (supabase as any).from("organization_members").select("id,user_id,role,created_at").eq("organization_id", orgId).order("created_at"),
-      (supabase as any).from("organization_invites").select("id,email,role,token,expires_at,accepted_at").eq("organization_id", orgId).is("accepted_at", null).order("created_at", { ascending: false }),
+      (supabase as unknown).from("organization_members").select("id,user_id,role,created_at").eq("organization_id", orgId).order("created_at"),
+      (supabase as unknown).from("organization_invites").select("id,email,role,token,expires_at,accepted_at").eq("organization_id", orgId).is("accepted_at", null).order("created_at", { ascending: false }),
     ]);
     if (!mRes.error) {
       const rows = (mRes.data ?? []) as Member[];
@@ -48,7 +43,12 @@ export default function Organizations() {
       setMembers(rows.map(r => r.user_id === user?.id ? { ...r, email: user.email } : r));
     }
     if (!iRes.error) setInvites((iRes.data ?? []) as Invite[]);
-  }
+  }, [user]);
+
+  useEffect(() => {
+    if (!currentOrg) { setMembers([]); setInvites([]); return; }
+    void loadOrg(currentOrg.id);
+  }, [currentOrg, loadOrg]);
 
   async function handleCreate() {
     if (!newName.trim()) return;
@@ -62,7 +62,7 @@ export default function Organizations() {
   async function handleInvite() {
     if (!currentOrg || !inviteEmail.trim() || !user) return;
     setInviting(true);
-    const { error } = await (supabase as any).from("organization_invites").insert({
+    const { error } = await (supabase as unknown).from("organization_invites").insert({
       organization_id: currentOrg.id,
       email: inviteEmail.trim().toLowerCase(),
       role: inviteRole,
@@ -76,20 +76,20 @@ export default function Organizations() {
   }
 
   async function revokeInvite(id: string) {
-    const { error } = await (supabase as any).from("organization_invites").delete().eq("id", id);
+    const { error } = await (supabase as unknown).from("organization_invites").delete().eq("id", id);
     if (error) { toast.error(error.message); return; }
     setInvites(p => p.filter(i => i.id !== id));
   }
 
   async function changeRole(memberId: string, role: OrgRole) {
-    const { error } = await (supabase as any).from("organization_members").update({ role }).eq("id", memberId);
+    const { error } = await (supabase as unknown).from("organization_members").update({ role }).eq("id", memberId);
     if (error) { toast.error(error.message); return; }
     setMembers(p => p.map(m => m.id === memberId ? { ...m, role } : m));
     toast.success("Role updated");
   }
 
   async function removeMember(memberId: string) {
-    const { error } = await (supabase as any).from("organization_members").delete().eq("id", memberId);
+    const { error } = await (supabase as unknown).from("organization_members").delete().eq("id", memberId);
     if (error) { toast.error(error.message); return; }
     setMembers(p => p.filter(m => m.id !== memberId));
     if (currentOrg) await refresh();

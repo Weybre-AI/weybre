@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { AppShell } from "@/components/AppShell";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -31,20 +31,21 @@ export default function OrgSso() {
 
   const canEdit = currentOrg?.role === "owner" || currentOrg?.role === "admin";
 
-  async function load() {
+  const load = useCallback(async () => {
     if (!currentOrg) return;
     setLoading(true);
-    const { data, error } = await (supabase as any).from("organization_sso")
+    const { data, error } = await (supabase as unknown).from("organization_sso")
       .select("id,organization_id,provider,email_domain,sso_provider_id,default_role,is_active")
       .eq("organization_id", currentOrg.id).order("created_at");
     setLoading(false);
     if (!error) setRows((data ?? []) as SsoRow[]);
-  }
-  useEffect(() => { void load(); /* eslint-disable-next-line */ }, [currentOrg?.id]);
+  }, [currentOrg]);
+
+  useEffect(() => { void load();   }, [load]);
 
   async function add() {
     if (!currentOrg || !domain.trim()) return;
-    const { error } = await (supabase as any).from("organization_sso").insert({
+    const { error } = await (supabase as unknown).from("organization_sso").insert({
       organization_id: currentOrg.id, provider,
       email_domain: domain.trim().toLowerCase().replace(/^@/, ""),
       sso_provider_id: provider === "saml" ? (ssoProviderId.trim() || null) : null,
@@ -55,12 +56,12 @@ export default function OrgSso() {
     void load();
   }
   async function toggle(r: SsoRow) {
-    const { error } = await (supabase as any).from("organization_sso").update({ is_active: !r.is_active }).eq("id", r.id);
+    const { error } = await (supabase as unknown).from("organization_sso").update({ is_active: !r.is_active }).eq("id", r.id);
     if (error) { toast.error(error.message); return; }
     void load();
   }
   async function remove(id: string) {
-    const { error } = await (supabase as any).from("organization_sso").delete().eq("id", id);
+    const { error } = await (supabase as unknown).from("organization_sso").delete().eq("id", id);
     if (error) { toast.error(error.message); return; }
     setRows(p => p.filter(r => r.id !== id));
   }
