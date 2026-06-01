@@ -27,11 +27,11 @@ const AdminOverview = () => {
       supabase.from("usage_events").select("*", { count: "exact", head: true }).eq("event_type", "research_query").gte("created_at", monthStart.toISOString()),
       supabase.from("drafts").select("*", { count: "exact", head: true }),
       supabase.from("judgments").select("*", { count: "exact", head: true }),
-      supabase.from("billing_plans").select("id, price_monthly"),
+      supabase.from("billing_plans").select("id, price_inr"),
     ]);
 
     const active = subs?.filter((s) => s.status === "active").length ?? 0;
-    const planMap = (plans ?? []).reduce((acc, p) => ({ ...acc, [p.id]: p.price_monthly }), {} as Record<string, number>);
+    const planMap = (plans ?? []).reduce((acc, p) => ({ ...acc, [p.id]: p.price_inr }), {} as Record<string, number>);
     const mrr = (subs ?? []).reduce((acc, s) => acc + (s.status === "active" ? (planMap[s.plan] ?? 0) : 0), 0);
     setStats({ users: users ?? 0, active, mrr, queries: queries ?? 0, drafts: drafts ?? 0, judgments: judgments ?? 0 });
   }

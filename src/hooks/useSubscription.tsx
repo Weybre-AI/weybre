@@ -43,8 +43,8 @@ export const useSubscription = () => {
 
   useEffect(() => {
     (async () => {
-      const { data } = await supabase.from("billing_plans").select("id, credits_per_month");
-      if (data) setPlans(data.reduce((acc, p) => ({ ...acc, [p.id]: p.credits_per_month }), {}));
+      const { data } = await supabase.from("billing_plans").select("id, credits_month");
+      if (data) setPlans(data.reduce((acc, p) => ({ ...acc, [p.id]: p.credits_month }), {}));
     })();
   }, []);
 

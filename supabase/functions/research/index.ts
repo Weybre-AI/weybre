@@ -7,6 +7,7 @@ import { handleOptions, json } from "../_shared/cors.ts";
 import { getUser, requireEnv } from "../_shared/auth.ts";
 import { chatCompletion, embed, MODELS } from "../_shared/ai.ts";
 import { deductCredits, validateInputSize, checkRateLimit } from "../_shared/credits.ts";
+import { getSupermemoryContext, addSupermemory } from "../_shared/supermemory.ts";
 
 const SUPABASE_URL = requireEnv("SUPABASE_URL");
 const SUPABASE_SERVICE_ROLE_KEY = requireEnv("SUPABASE_SERVICE_ROLE_KEY");
@@ -99,6 +100,16 @@ Deno.serve(async (req) => {
 
     const admin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
+    // Fetch user's organization for Supermemory containerTag
+    const { data: member } = await admin
+      .from("organization_members")
+      .select("organization_id")
+      .eq("user_id", user.id)
+      .limit(1)
+      .maybeSingle();
+
+    const orgId = member?.organization_id;
+
     // Security: Deduct credits BEFORE processing
     const creditCheck = await deductCredits(admin, user.id, "research_query", { query: query.slice(0, 200), matter_id });
     if (!creditCheck.allowed) {
@@ -113,14 +124,15 @@ Deno.serve(async (req) => {
 
     const queryEmbedding = await embed(GOOGLE_AI_API_KEY, query) ?? new Array(1536).fill(0);
 
-    // ---------- 1. Hybrid retrieval in parallel: SC corpus + Indian Kanoon ----------
-    const [internalRes, ikDocs] = await Promise.all([
+    // ---------- 1. Parallel retrieval: Internal + Kanoon + Supermemory ----------
+    const [internalRes, ikDocs, smContext] = await Promise.all([
       admin.rpc("search_judgments", {
         query_text: query,
         query_embedding: `[${queryEmbedding.join(",")}]`,
         match_count: 6,
       }),
       ikSearch(query, 6),
+      orgId ? getSupermemoryContext(orgId, query) : Promise.resolve({}),
     ]);
 
     if (internalRes.error) console.error("search error", internalRes.error);
@@ -261,6 +273,14 @@ ${s.headnote ? `Excerpt: ${s.headnote.slice(0, 1500)}` : ""}
 ${s.summary ? `Summary: ${s.summary.slice(0, 600)}` : ""}`;
     }).join("\n\n---\n\n");
 
+    // Format Supermemory context
+    const smProfile = smContext.profile
+      ? `USER PROFILE & PREFERENCES:\n${smContext.profile.static.join("\n")}\n${smContext.profile.dynamic.join("\n")}`
+      : "";
+    const smMemories = smContext.searchResults?.results.length
+      ? `PAST FIRM KNOWLEDGE / RELEVANT MEMORIES:\n${smContext.searchResults.results.map((r) => r.memory || r.chunk).join("\n---\n")}`
+      : "";
+
     const systemPrompt = `You are Weybre AI, an Indian legal research engine. Synthesise grounded answers from CONTEXT (Supreme Court of India corpus + Indian Kanoon precedents) for practising advocates.
 
 Write like a senior advocate briefing a colleague — clear prose, minimal scaffolding.
@@ -287,7 +307,12 @@ Hard rules:
     const userDocsBlock = userDocs.length
       ? `\n\nUSER-PROVIDED DOCUMENTS (treat as the user's own facts/briefs/exhibits — anchor analysis to these and cite as [U1], [U2]…):\n\n${userDocs.map((d, i) => `[U${i + 1}] ${d.name}\n${d.text}`).join("\n\n---\n\n")}\n`
       : "";
-    const userPrompt = `QUESTION: ${query}${userDocsBlock}\n\nCONTEXT (ranked Indian precedents):\n\n${context}\n\nWhen user documents are provided, frame the answer around their facts, then map the precedents to those facts. Use [n] for precedents and [U#] for user documents.`;
+
+    const smBlock = (smProfile || smMemories)
+      ? `\n\nFIRM MEMORY & USER CONTEXT (use this to tailor the answer to the lawyer's preferences or previous firm research, but prioritize the official CONTEXT for legal authority):\n${smProfile}\n${smMemories}\n`
+      : "";
+
+    const userPrompt = `QUESTION: ${query}${userDocsBlock}${smBlock}\n\nCONTEXT (ranked Indian precedents):\n\n${context}\n\nWhen user documents are provided, frame the answer around their facts, then map the precedents to those facts. Use [n] for precedents and [U#] for user documents.`;
 
     // ---------- 5. Synthesize ----------
     let j: unknown;
@@ -321,6 +346,11 @@ Hard rules:
       similarity: s.similarity ?? null,
     }));
 
+    // Store the interaction in Supermemory (fire-and-forget)
+    if (orgId) {
+      addSupermemory(orgId, user.id, `User query: ${query}\nWeybre AI Answer: ${answer.slice(0, 1000)}`).catch(console.error);
+    }
+
     await admin.from("usage_events").insert({
       user_id: user.id,
       event_type: "research_query",
@@ -330,10 +360,9 @@ Hard rules:
 
     // Audit data access (best-effort, scoped to user's first org if any)
     try {
-      const { data: m } = await admin.from("organization_members").select("organization_id").eq("user_id", user.id).limit(1).maybeSingle();
-      if (m?.organization_id) {
+      if (orgId) {
         await admin.from("audit_logs").insert({
-          organization_id: m.organization_id,
+          organization_id: orgId,
           actor_user_id: user.id,
           actor_email: user.email,
           action: "data.research_query",
@@ -349,3 +378,4 @@ Hard rules:
     return json({ error: e instanceof Error ? e.message : "Unknown error" }, 500, origin);
   }
 });
+
