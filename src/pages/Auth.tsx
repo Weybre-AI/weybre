@@ -60,7 +60,7 @@ const Auth = () => {
     setLoading(true);
     const { error } = await supabase.auth.signInWithOAuth({
       provider: "google",
-      options: { redirectTo: `${window.location.origin}/onboarding` },
+      options: { redirectTo: `${redirectBase}/onboarding` },
     });
     if (error) { toast.error(error.message); setLoading(false); }
   };
