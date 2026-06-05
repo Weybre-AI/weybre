@@ -1,4 +1,5 @@
 import { requireEnv } from "./auth.ts";
+import { logInfo, logError } from "./logger.ts";
 
 const SUPERMEMORY_API_KEY = Deno.env.get("SUPERMEMORY_API_KEY") ?? "";
 
@@ -36,13 +37,13 @@ export async function getSupermemoryContext(
     });
 
     if (!response.ok) {
-      console.warn("Supermemory profile fetch failed:", response.status);
+      logInfo("Supermemory profile fetch failed:", { status: response.status });
       return {};
     }
 
     return await response.json();
   } catch (error) {
-    console.error("Supermemory error:", error);
+    logError("Supermemory error:", error);
     return {};
   }
 }
@@ -72,10 +73,10 @@ export async function addSupermemory(
     });
 
     if (!response.ok) {
-      console.warn("Supermemory add failed:", response.status);
+      logInfo("Supermemory add failed:", { status: response.status });
     }
   } catch (error) {
-    console.error("Supermemory add error:", error);
+    logError("Supermemory add error:", error);
   }
 }
 

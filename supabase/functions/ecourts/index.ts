@@ -1,3 +1,4 @@
+import { wrapHandler } from "../_shared/response.ts";
 // deploy: 20260523160000
 // eCourts India API proxy (authenticated, rate-limited)
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
@@ -8,8 +9,7 @@ import { checkRateLimit } from "../_shared/credits.ts";
 
 const BASE = "https://webapi.ecourtsindia.com";
 
-Deno.serve(async (req) => {
-  const origin = req.headers.get("origin") ?? "";
+Deno.serve(wrapHandler(async (req, origin, requestId) => {
   if (req.method === "OPTIONS") return handleOptions(origin);
 
   try {
@@ -83,4 +83,4 @@ Deno.serve(async (req) => {
   } catch (e) {
     return json({ error: (e as Error).message }, 500, origin);
   }
-});
+}));

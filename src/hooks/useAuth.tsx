@@ -30,15 +30,15 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         // Fire-and-forget JIT provisioning: if user's email domain matches an org SSO config,
         // they're added as a member with the configured default role.
         setTimeout(() => {
-          supabase.rpc("sso_jit_provision").then(({ error }) => {
+          supabase.rpc("sso_jit_provision").then(({ data, error }) => {
             if (error) {
               console.warn("sso_jit_provision:", error.message);
               // Only toast if it's a real error, not just "no matching domain"
               if (!error.message.includes("no rows") && !error.message.includes("NULL")) {
                 toast.error("SSO provisioning failed. Please contact your admin.");
               }
-            } else {
-              // Successfully provisioned
+            } else if (data === true) {
+              // Successfully provisioned a NEW membership
               toast.success("Welcome! You've been automatically added to your organization.");
             }
           });

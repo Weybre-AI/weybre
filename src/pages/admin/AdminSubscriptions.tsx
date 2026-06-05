@@ -15,6 +15,7 @@ type Row = {
   status: string;
   current_period_end: string | null;
   dodo_subscription_id: string | null;
+  is_manual_billing?: boolean;
   full_name?: string | null;
   firm_name?: string | null;
 };
@@ -24,7 +25,7 @@ const AdminSubscriptions = () => {
   const [busy, setBusy] = useState<string | null>(null);
 
   const load = async () => {
-    const { data: subs } = await supabase.from("subscriptions").select("id,user_id,plan,status,current_period_end,dodo_subscription_id").order("status").limit(500);
+    const { data: subs } = await supabase.from("subscriptions").select("id,user_id,plan,status,current_period_end,dodo_subscription_id,is_manual_billing").order("status").limit(500);
     const ids = (subs ?? []).map((s) => s.user_id);
     const { data: profiles } = await supabase.from("profiles").select("id,full_name,firm_name").in("id", ids.length ? ids : ["00000000-0000-0000-0000-000000000000"]);
     const pMap = new Map((profiles ?? []).map((p) => [p.id, p]));
@@ -47,6 +48,21 @@ const AdminSubscriptions = () => {
     }
   };
 
+  const provisionEnterprise = async (userId: string) => {
+    if (!confirm("Manually provision 12 months of Enterprise access for this user? This bypasses Dodo Payments.")) return;
+    setBusy(userId);
+    try {
+      const { error } = await supabase.rpc("provision_enterprise_plan", { _user_id: userId, _duration_months: 12 });
+      if (error) throw error;
+      toast.success("Enterprise plan provisioned manually");
+      await load();
+    } catch (e: unknown) {
+      toast.error(e?.message ?? "Failed to provision");
+    } finally {
+      setBusy(null);
+    }
+  };
+
   return (
     <AdminShell title="Subscriptions">
       <Card className="p-5">
@@ -57,8 +73,8 @@ const AdminSubscriptions = () => {
                 <TableHead>Customer</TableHead>
                 <TableHead>Plan</TableHead>
                 <TableHead>Status</TableHead>
+                <TableHead>Billing</TableHead>
                 <TableHead>Period end</TableHead>
-                <TableHead>Dodo ID</TableHead>
                 <TableHead className="text-right">Actions</TableHead>
               </TableRow>
             </TableHeader>
@@ -71,12 +87,23 @@ const AdminSubscriptions = () => {
                   </TableCell>
                   <TableCell className="capitalize">{r.plan}</TableCell>
                   <TableCell><StatusBadge status={r.status} /></TableCell>
+                  <TableCell>
+                    {r.is_manual_billing ? (
+                      <span className="text-[0.65rem] font-bold uppercase tracking-tight text-accent">Manual</span>
+                    ) : (
+                      <span className="text-[0.65rem] font-bold uppercase tracking-tight text-muted-foreground">Automated</span>
+                    )}
+                  </TableCell>
                   <TableCell className="text-xs text-muted-foreground">{r.current_period_end ? new Date(r.current_period_end).toLocaleDateString("en-IN") : "—"}</TableCell>
-                  <TableCell className="font-mono text-[0.7rem] text-muted-foreground">{r.dodo_subscription_id ?? "—"}</TableCell>
-                  <TableCell className="text-right">
+                  <TableCell className="text-right flex justify-end gap-2">
                     {r.status === "active" && r.dodo_subscription_id && (
                       <Button size="sm" variant="outline" disabled={busy === r.user_id} onClick={() => cancel(r.user_id)}>
                         {busy === r.user_id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Cancel"}
+                      </Button>
+                    )}
+                    {r.plan !== 'enterprise' && (
+                      <Button size="sm" variant="secondary" disabled={busy === r.user_id} onClick={() => provisionEnterprise(r.user_id)}>
+                        {busy === r.user_id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Enterprise"}
                       </Button>
                     )}
                   </TableCell>

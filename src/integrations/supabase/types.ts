@@ -1174,7 +1174,7 @@ export type Database = {
           title: string
         }[]
       }
-      sso_jit_provision: { Args: never; Returns: string }
+      sso_jit_provision: { Args: never; Returns: boolean }
     }
     Enums: {
       app_role: "admin" | "lawyer"

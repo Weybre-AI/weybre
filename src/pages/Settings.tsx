@@ -6,10 +6,12 @@ import { Label } from "@/components/ui/label";
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
 import { useSubscription } from "@/hooks/useSubscription";
-import { Loader2, Trash2, ShieldCheck } from "lucide-react";
+import { Loader2, Trash2, ShieldCheck, Key, Webhook, Copy, Plus, X } from "lucide-react";
 import { toast } from "sonner";
 import { useNavigate } from "react-router-dom";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { useApiKeys } from "@/hooks/useApiKeys";
+import { Badge } from "@/components/ui/badge";
 
 interface UserProfile {
   full_name: string | null;
@@ -28,13 +30,42 @@ const Settings = () => {
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [cancelling, setCancelling] = useState(false);
+  const [orgId, setOrgId] = useState<string | null>(null);
+
+  // Developer Platform Hooks
+  const { keys, createKey, revokeKey, loading: keysLoading } = useApiKeys(orgId);
+  const [newKeyName, setNewKeyName] = useState("");
+  const [revealedKey, setRevealedKey] = useState<string | null>(null);
 
   useEffect(() => {
     if (!user) return;
-    supabase.from("profiles").select("*").eq("id", user.id).maybeSingle().then(({ data }) => {
-      setProfile(data as UserProfile); setLoading(false);
-    });
+    (async () => {
+      const { data: p } = await supabase.from("profiles").select("*").eq("id", user.id).maybeSingle();
+      setProfile(p as UserProfile);
+      
+      const { data: m } = await supabase.from("organization_members").select("organization_id").eq("user_id", user.id).limit(1).maybeSingle();
+      if (m) setOrgId(m.organization_id);
+      
+      setLoading(false);
+    })();
   }, [user]);
+
+  const handleCreateKey = async () => {
+    if (!newKeyName.trim()) {
+      toast.error("Enter a name for the API key");
+      return;
+    }
+    const key = await createKey(newKeyName, ["research:read", "draft:write"]);
+    if (key) {
+      setRevealedKey(key);
+      setNewKeyName("");
+    }
+  };
+
+  const copyToClipboard = (text: string) => {
+    navigator.clipboard.writeText(text);
+    toast.success("Copied to clipboard");
+  };
 
   const save = async () => {
     if (!user || !profile) return;
@@ -124,6 +155,68 @@ const Settings = () => {
           </div>
         </section>
 
+        {/* Initiative 5: Developer Platform Portal */}
+        <section className="rounded-xl border border-border bg-card p-6">
+          <div className="flex items-center gap-2">
+            <Key className="h-5 w-5 text-accent" />
+            <h2 className="font-serif text-lg font-semibold text-primary">Developer Portal</h2>
+          </div>
+          <p className="mt-1 text-sm text-muted-foreground">Manage API keys and webhooks to integrate Weybre AI into your firm's internal tools.</p>
+          
+          <div className="mt-6 space-y-6">
+            <div>
+              <Label className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Create New API Key</Label>
+              <div className="mt-2 flex gap-2">
+                <Input placeholder="e.g. Internal Research Tool" value={newKeyName} onChange={e => setNewKeyName(e.target.value)} className="max-w-sm" />
+                <Button onClick={handleCreateKey} size="sm" className="bg-accent hover:bg-accent/90"><Plus className="h-4 w-4 mr-1" /> Create</Button>
+              </div>
+            </div>
+
+            {revealedKey && (
+              <div className="rounded-lg bg-accent/10 border border-accent/20 p-4 animate-in fade-in zoom-in-95">
+                <p className="text-xs font-bold text-accent uppercase tracking-widest">New Secret Key Created</p>
+                <div className="mt-2 flex items-center justify-between gap-4 bg-background border rounded px-3 py-2">
+                  <code className="font-mono text-sm break-all">{revealedKey}</code>
+                  <Button variant="ghost" size="icon" onClick={() => copyToClipboard(revealedKey)}><Copy className="h-4 w-4" /></Button>
+                </div>
+                <p className="mt-2 text-[10px] text-muted-foreground font-medium italic">Make sure to copy this key now. You won't be able to see it again for security reasons.</p>
+                <Button variant="link" size="sm" onClick={() => setRevealedKey(null)} className="mt-2 h-auto p-0 text-accent">I've copied it</Button>
+              </div>
+            )}
+
+            <div className="space-y-3">
+              <Label className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Active Keys</Label>
+              {keys.length === 0 ? (
+                <div className="rounded border border-dashed p-4 text-center text-xs text-muted-foreground">No active API keys</div>
+              ) : (
+                <div className="grid gap-2">
+                  {keys.map(k => (
+                    <div key={k.id} className="flex items-center justify-between rounded border p-3 bg-muted/5">
+                      <div>
+                        <p className="font-medium text-sm">{k.name}</p>
+                        <div className="flex items-center gap-2 mt-1">
+                          <code className="text-[10px] bg-muted px-1.5 py-0.5 rounded">{k.key_prefix}••••••••</code>
+                          <span className="text-[10px] text-muted-foreground">Last used: {k.last_used_at ? new Date(k.last_used_at).toLocaleDateString() : 'Never'}</span>
+                        </div>
+                      </div>
+                      <Button variant="ghost" size="icon" onClick={() => revokeKey(k.id)}><X className="h-4 w-4 text-destructive" /></Button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="pt-4 border-t">
+              <div className="flex items-center gap-2">
+                <Webhook className="h-4 w-4 text-muted-foreground" />
+                <h3 className="font-serif text-sm font-semibold text-primary">Webhooks</h3>
+              </div>
+              <p className="mt-1 text-xs text-muted-foreground">Receive real-time notifications for completed jobs, new judgments, or billing events.</p>
+              <Button variant="outline" size="sm" className="mt-3" disabled>Configure Webhooks (Coming Soon)</Button>
+            </div>
+          </div>
+        </section>
+
         <section className="rounded-xl border border-destructive/30 bg-destructive/5 p-6">
           <h2 className="font-serif text-lg font-semibold text-destructive">DPDP — Data Privacy</h2>
           <p className="mt-2 text-sm text-muted-foreground">Export your data in a machine-readable format, or permanently delete your matters, research notes, drafts, and usage history. Deletion cannot be undone.</p>
@@ -148,3 +241,4 @@ const Settings = () => {
 };
 
 export default Settings;
+

@@ -4,6 +4,7 @@
  */
 
 import { corsHeaders } from "./cors.ts";
+import { logInfo, logError } from "./logger.ts";
 
 export interface StandardResponse<T = unknown> {
   data?: T;
@@ -64,11 +65,11 @@ export function wrapHandler(
     try {
       const response = await handler(req, origin, requestId);
       const duration = Date.now() - startTime;
-      console.log(`[${requestId}] Request completed in ${duration}ms`);
+      logInfo(`[${requestId}] Request completed in ${duration}ms`);
       return response;
     } catch (error) {
       const duration = Date.now() - startTime;
-      console.error(`[${requestId}] Request failed after ${duration}ms:`, error);
+      logError(`[${requestId}] Request failed after ${duration}ms:`, error);
       return errorResponse(
         error instanceof Error ? error.message : "Internal server error",
         500,

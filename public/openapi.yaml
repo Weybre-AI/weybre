@@ -1,0 +1,86 @@
+openapi: 3.0.0
+info:
+  title: Weybre AI Edge API
+  description: Enterprise legal AI infrastructure for Indian law firms.
+  version: 1.0.0
+servers:
+  - url: https://weybre.ai/functions/v1
+    description: Production API
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+  schemas:
+    AsyncResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: processing
+        requestId:
+          type: string
+          format: uuid
+
+paths:
+  /contract-intake:
+    post:
+      summary: Extract logic and risk from legal contracts
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: query
+          name: async
+          schema:
+            type: boolean
+          description: If true, return 202 immediately and process in background.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - contractId
+              properties:
+                contractId:
+                  type: string
+                  format: uuid
+      responses:
+        '200':
+          description: Success
+        '202':
+          description: Accepted for background processing
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AsyncResponse'
+        '402':
+          description: Credits exhausted
+
+  /litigation-intel:
+    post:
+      summary: Generate litigation intelligence from CNR or keywords
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: query
+          name: async
+          schema:
+            type: boolean
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                cnr:
+                  type: string
+                query:
+                  type: string
+      responses:
+        '200':
+          description: Intelligence brief generated
+        '202':
+          description: Processing in background

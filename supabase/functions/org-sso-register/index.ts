@@ -1,3 +1,5 @@
+import { wrapHandler } from "../_shared/response.ts";
+import { logInfo, logError } from "../_shared/logger.ts";
 // deploy: 20260522151723
 // Register a per-organization SAML SSO provider via the Supabase Admin API.
 // Body: { organization_id, metadata_url, email_domain, default_role?, role_mappings? }
@@ -13,8 +15,7 @@ function json(body: unknown, status = 200, origin = "") {
   return corsJson(body, status, origin);
 }
 
-Deno.serve(async (req) => {
-  const origin = req.headers.get("origin") ?? "";
+Deno.serve(wrapHandler(async (req, origin, requestId) => {
   if (req.method === "OPTIONS") return handleOptions(origin);
 
   try {
@@ -59,7 +60,7 @@ Deno.serve(async (req) => {
     });
     const ssoBody = await ssoRes.json().catch(() => ({}));
     if (!ssoRes.ok) {
-      console.error("SSO register failed", ssoRes.status, ssoBody);
+      logError("SSO register failed", ssoRes.status, ssoBody);
       return json({ error: ssoBody?.error ?? `SSO register failed (${ssoRes.status})`, details: ssoBody }, 500);
     }
 
@@ -86,7 +87,7 @@ Deno.serve(async (req) => {
       .single();
 
     if (upErr) {
-      console.error("organization_sso upsert error", upErr);
+      logError("organization_sso upsert error", upErr);
       return json({ error: upErr.message }, 500);
     }
 
@@ -102,7 +103,7 @@ Deno.serve(async (req) => {
 
     return json({ ok: true, sso_provider_id, organization_sso: row });
   } catch (e) {
-    console.error("org-sso-register error", e);
+    logError("org-sso-register error", e);
     return json({ error: e instanceof Error ? e.message : "Unknown error" }, 500);
   }
-});
+}));

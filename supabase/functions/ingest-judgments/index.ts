@@ -1,3 +1,5 @@
+import { wrapHandler } from "../_shared/response.ts";
+import { logInfo, logError } from "../_shared/logger.ts";
 // deploy: 20260522151723
 // Admin-only ingestion endpoint. Supports two modes:
 //  1) source:"rows" (default) — accepts a small batch of pre-built rows.
@@ -60,13 +62,15 @@ function mapHfRow(raw: unknown): InRow {
   };
 }
 
-async function upsertOne(admin: unknown, row: InRow, withEmbed: boolean) {
+import { processJudgmentForRAG } from "../_shared/ingestion.ts";
+
+async function upsertOne(admin: any, row: InRow, withEmbed: boolean) {
   let vec: number[] | null = null;
   if (withEmbed) {
     const text = [row.title, row.headnote, row.summary, row.full_text].filter(Boolean).join("\n\n");
     vec = await embed(text || row.title);
   }
-  const record: unknown = {
+  const record: any = {
     external_id: row.external_id ?? null,
     title: row.title,
     citation: row.citation ?? null,
@@ -82,18 +86,26 @@ async function upsertOne(admin: unknown, row: InRow, withEmbed: boolean) {
     source_url: row.source_url ?? null,
     embedding: vec ? `[${vec.join(",")}]` : null,
   };
+  
+  let result: any;
   if (row.external_id) {
-    const { error } = await admin.from("judgments").upsert(record, { onConflict: "external_id" });
-    if (error) return { ok: false, error: error.message, external_id: row.external_id };
-    return { ok: true, external_id: row.external_id, embedded: !!vec };
+    result = await admin.from("judgments").upsert(record, { onConflict: "external_id" }).select("id").single();
+  } else {
+    result = await admin.from("judgments").insert(record).select("id").single();
   }
-  const { error } = await admin.from("judgments").insert(record);
-  if (error) return { ok: false, error: error.message };
-  return { ok: true, embedded: !!vec };
+
+  if (result.error) {
+    return { ok: false, error: result.error.message, external_id: row.external_id };
+  }
+
+  // 1.2 Multi-Stage Ingestion (RAG Pipeline)
+  // Trigger semantic chunking and chunk-level embedding
+  await processJudgmentForRAG(admin, GOOGLE_AI_API_KEY, result.data.id);
+
+  return { ok: true, external_id: row.external_id, embedded: !!vec, id: result.data.id };
 }
 
-Deno.serve(async (req) => {
-  const origin = req.headers.get("origin") ?? "";
+Deno.serve(wrapHandler(async (req, origin, requestId) => {
   if (req.method === "OPTIONS") return handleOptions(origin);
 
   try {
@@ -163,7 +175,7 @@ Deno.serve(async (req) => {
     for (const row of rows) out.push(await upsertOne(admin, row, true));
     return json({ processed: out.length, results: out }, 200, origin);
   } catch (e) {
-    console.error("ingest", e);
+    logError("ingest", e);
     return json({ error: e instanceof Error ? e.message : "Unknown error" }, 500, origin);
   }
-});
+}));

@@ -1,3 +1,5 @@
+import { wrapHandler } from "../_shared/response.ts";
+import { logInfo, logError } from "../_shared/logger.ts";
 // deploy: 20260523140000
 // Export draft to PDF or DOCX (returned as base64 for client download).
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
@@ -78,8 +80,7 @@ function makePdf(title: string, content: string): Uint8Array {
   return new Uint8Array(doc.output("arraybuffer"));
 }
 
-Deno.serve(async (req) => {
-  const origin = req.headers.get("origin") ?? "";
+Deno.serve(wrapHandler(async (req, origin, requestId) => {
   if (req.method === "OPTIONS") return handleOptions(origin);
 
   try {
@@ -110,7 +111,7 @@ Deno.serve(async (req) => {
 
     return json({ file: bytesToBase64(bytes), filename: `${draft.title}.${format}` }, 200, origin);
   } catch (e) {
-    console.error("export-draft error", e);
+    logError("export-draft error", e);
     return json({ error: e instanceof Error ? e.message : "Unknown error" }, 500, origin);
   }
-});
+}));

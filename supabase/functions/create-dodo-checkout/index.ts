@@ -1,3 +1,5 @@
+import { wrapHandler } from "../_shared/response.ts";
+import { logInfo, logError } from "../_shared/logger.ts";
 // deploy: 20260522151723
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { getUser, requireEnv } from "../_shared/auth.ts";
@@ -18,8 +20,7 @@ const PRODUCT_IDS: Record<string, string | undefined> = {
   solo:         Deno.env.get("DODO_PRODUCT_ID_SOLO"),
 };
 
-Deno.serve(async (req) => {
-  const origin = req.headers.get("origin") ?? "";
+Deno.serve(wrapHandler(async (req, origin, requestId) => {
 
   if (req.method === "OPTIONS") return handleOptions(origin);
   try {
@@ -39,11 +40,14 @@ Deno.serve(async (req) => {
     const returnOrigin = isOriginAllowed(origin) ? origin : "https://weybre.com";
     const returnUrl = `${returnOrigin}/app?checkout=success`;
 
-    const profile = await admin.from("profiles").select("full_name").eq("id", user.id).maybeSingle();
-    const fullName = profile.data?.full_name ?? user.user_metadata?.full_name ?? user.email.split("@")[0];
+    const { data: profile } = await admin
+      .from("profiles")
+      .select("full_name, billing_address, billing_state, billing_zip, gstin")
+      .eq("id", user.id)
+      .maybeSingle();
 
-    // Direct REST call to Dodo Payments — create subscription with hosted payment link
-    // TODO: Fetch billing details from user profile or collect on checkout page.
+    const fullName = profile?.full_name ?? user.user_metadata?.full_name ?? user.email.split("@")[0];
+
     const payload = {
       product_id: productId,
       quantity: 1,
@@ -51,8 +55,12 @@ Deno.serve(async (req) => {
       return_url: returnUrl,
       billing: body.billing ?? {
         country: "IN",
+        state: profile?.billing_state || null,
+        zip: profile?.billing_zip || null,
+        address_line_1: profile?.billing_address || null,
       },
       customer: { email: user.email, name: fullName },
+      tax_id: profile?.gstin || null,
       metadata: { user_id: user.id, plan, product: "Weybre AI" },
     };
 
@@ -66,13 +74,13 @@ Deno.serve(async (req) => {
     });
     const dodoText = await dodoRes.text();
     if (!dodoRes.ok) {
-      console.error("dodo error", dodoRes.status, dodoText);
+      logError("dodo error", dodoRes.status, dodoText);
       return json({ error: `Dodo Payments error: ${dodoText}` }, 500, origin);
     }
     const session = JSON.parse(dodoText);
     const checkoutUrl: string | undefined = session.payment_link ?? session.checkout_url ?? session.url;
     if (!checkoutUrl) {
-      console.error("dodo response missing payment_link", session);
+      logError("dodo response missing payment_link", session);
       return json({ error: "Dodo Payments did not return a checkout URL" }, 500, origin);
     }
 
@@ -105,8 +113,8 @@ Deno.serve(async (req) => {
 
     return json({ checkout_url: checkoutUrl }, 200, origin);
   } catch (e) {
-    console.error("create-dodo-checkout error", e);
+    logError("create-dodo-checkout error", e);
     const origin2 = req.headers.get("origin") ?? "";
     return json({ error: e instanceof Error ? e.message : "Unable to start checkout" }, 500, origin2);
   }
-});
+}));

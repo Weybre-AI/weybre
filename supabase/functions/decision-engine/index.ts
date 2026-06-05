@@ -1,3 +1,4 @@
+import { wrapHandler } from "../_shared/response.ts";
 // deploy: 20260522151723
 // Weybre AI — Legal Decision Engine
 // Pulls cases from Indian Kanoon API, then uses Google Gemini to synthesize
@@ -48,12 +49,12 @@ async function ikSearch(query: string, pagenum = 0): Promise<IKDoc[]> {
   });
   const text = await r.text();
   if (!r.ok) {
-    console.error("IK search error", r.status, text.slice(0, 500));
+    logError("IK search error", r.status, text.slice(0, 500));
     return [];
   }
   let j: unknown;
-  try { j = JSON.parse(text); } catch { console.error("IK non-JSON response", text.slice(0, 300)); return []; }
-  console.log("IK search results:", j.docs?.length ?? 0, "for query:", query);
+  try { j = JSON.parse(text); } catch { logError("IK non-JSON response", text.slice(0, 300)); return []; }
+  logInfo("IK search results:", j.docs?.length ?? 0, "for query:", query);
   return Array.isArray(j.docs) ? j.docs.slice(0, 8) : [];
 }
 
@@ -70,8 +71,7 @@ function stripHtml(s = ""): string {
   return s.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
 }
 
-Deno.serve(async (req) => {
-  const origin = req.headers.get("origin") ?? "";
+Deno.serve(wrapHandler(async (req, origin, requestId) => {
   if (req.method === "OPTIONS") return handleOptions(origin);
   try {
     const auth = req.headers.get("Authorization");
@@ -106,7 +106,7 @@ Deno.serve(async (req) => {
 
     const searchQuery = problem || contractText.slice(0, 200);
     const docs = await ikSearch(searchQuery).catch((e) => {
-      console.error("IK search threw", e);
+      logError("IK search threw", e);
       return [] as IKDoc[];
     });
 
@@ -147,7 +147,7 @@ Deno.serve(async (req) => {
           });
         }
       } catch (e) {
-        console.error("internal corpus fallback failed", e);
+        logError("internal corpus fallback failed", e);
       }
     }
 
@@ -215,7 +215,7 @@ Open with a 2-3 sentence direct answer. Then prose covering the key arguments th
       cases: detailed.map((c, i) => ({ n: i + 1, ...c })),
     }, 200, origin);
   } catch (e) {
-    console.error("decision-engine error", e);
+    logError("decision-engine error", e);
     return json({ error: e instanceof Error ? e.message : "Unknown error" }, 500, origin);
   }
-});
+}));

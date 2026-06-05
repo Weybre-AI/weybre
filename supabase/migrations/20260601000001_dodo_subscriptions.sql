@@ -10,6 +10,21 @@ CREATE TABLE IF NOT EXISTS public.subscriptions (
   updated_at timestamptz DEFAULT now()
 );
 
+ALTER TABLE public.subscriptions ADD COLUMN IF NOT EXISTS provider_id text;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_indexes
+    WHERE schemaname = 'public'
+      AND tablename = 'subscriptions'
+      AND indexname = 'subscriptions_provider_id_idx'
+  ) THEN
+    CREATE UNIQUE INDEX subscriptions_provider_id_idx ON public.subscriptions(provider_id);
+  END IF;
+END;
+$$;
+
 ALTER TABLE public.subscriptions ENABLE ROW LEVEL SECURITY;
 
 CREATE POLICY "Users can view own subscriptions" ON public.subscriptions

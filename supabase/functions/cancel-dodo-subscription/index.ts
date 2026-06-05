@@ -1,7 +1,9 @@
+import { wrapHandler } from "../_shared/response.ts";
 // deploy: 20260522151723
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { getUser, requireEnv } from "../_shared/auth.ts";
 import { handleOptions, json } from "../_shared/cors.ts";
+import { logError } from "../_shared/logger.ts";
 
 const SUPABASE_URL = requireEnv("SUPABASE_URL");
 const SERVICE_ROLE = requireEnv("SUPABASE_SERVICE_ROLE_KEY");
@@ -9,8 +11,7 @@ const DODO_API_KEY = requireEnv("DODO_PAYMENTS_API_KEY");
 const DODO_ENV = (Deno.env.get("DODO_PAYMENTS_ENV") ?? "test_mode") as "test_mode" | "live_mode";
 const DODO_BASE = DODO_ENV === "live_mode" ? "https://live.dodopayments.com" : "https://test.dodopayments.com";
 
-Deno.serve(async (req) => {
-  const origin = req.headers.get("origin") ?? "";
+Deno.serve(wrapHandler(async (req, origin, requestId) => {
 
   if (req.method === "OPTIONS") return handleOptions(origin);
   try {
@@ -55,7 +56,7 @@ Deno.serve(async (req) => {
     });
     const text = await res.text();
     if (!res.ok) {
-      console.error("dodo cancel error", res.status, text);
+      logError("dodo cancel error", { status: res.status, text });
       return json({ error: `Dodo Payments error: ${text}` }, 500, origin);
     }
 
@@ -82,8 +83,8 @@ Deno.serve(async (req) => {
 
     return json({ ok: true }, 200, origin);
   } catch (e) {
-    console.error("cancel-dodo-subscription error", e);
+    logError("cancel-dodo-subscription error", e);
     const origin2 = req.headers.get("origin") ?? "";
     return json({ error: e instanceof Error ? e.message : "Unable to cancel" }, 500, origin2);
   }
-});
+}));

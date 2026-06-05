@@ -1,3 +1,5 @@
+import { wrapHandler } from "../_shared/response.ts";
+import { logInfo, logError } from "../_shared/logger.ts";
 // deploy: 20260523120000
 // Research edge function — Hybrid retrieval over Supreme Court corpus + Indian Kanoon,
 // then a structured grounded brief (answer → principles → ranked precedents → caveats).
@@ -38,7 +40,7 @@ async function ikSearch(query: string, limit = 6) {
     method: "POST",
     headers: { Authorization: `Token ${IK_TOKEN}`, Accept: "application/json" },
   });
-  if (!r.ok) { console.error("IK search error", r.status); return []; }
+  if (!r.ok) { logError("IK search error", r.status); return []; }
   const j = await r.json().catch(() => ({}));
   const docs = Array.isArray(j.docs) ? j.docs.slice(0, limit) : [];
   return docs.map((d: unknown) => ({
@@ -70,8 +72,9 @@ async function searchSupremeCourtWeb(query: string) {
   return Array.isArray(j.results) ? j.results.filter((x: unknown) => x?.url).slice(0, 6) : [];
 }
 
-Deno.serve(async (req) => {
-  const origin = req.headers.get("origin") ?? "";
+import { buildLegalContext, LEGAL_RAG_PROMPT } from "../_shared/rag_utils.ts";
+
+Deno.serve(wrapHandler(async (req, origin, requestId) => {
   if (req.method === "OPTIONS") return handleOptions(origin);
 
   try {
@@ -81,15 +84,9 @@ Deno.serve(async (req) => {
     const user = await getUser(auth);
     if (!user) return json({ error: "Unauthorized" }, 401, origin);
 
-    const { query, matter_id, userContext } = await req.json();
+    const { query, matter_id, filters = {} } = await req.json();
     if (!query || typeof query !== "string" || query.length < 3) {
       return json({ error: "Query must be at least 3 characters" }, 400, origin);
-    }
-
-    // Security: Validate input size
-    const inputValidation = validateInputSize(query, 5000);
-    if (!inputValidation.valid) {
-      return json({ error: inputValidation.error }, 400, origin);
     }
 
     // Security: Rate limiting
@@ -100,282 +97,91 @@ Deno.serve(async (req) => {
 
     const admin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
-    // Fetch user's organization for Supermemory containerTag
-    const { data: member } = await admin
-      .from("organization_members")
-      .select("organization_id")
-      .eq("user_id", user.id)
-      .limit(1)
+    // 0. Cache Check
+    const queryHash = await hashKey(query.toLowerCase().trim());
+    const { data: cached } = await admin
+      .from("rag_cache")
+      .select("answer, sources")
+      .eq("query_hash", queryHash)
+      .gt("expires_at", new Date().toISOString())
       .maybeSingle();
 
-    const orgId = member?.organization_id;
+    if (cached) {
+      logInfo("RAG Cache Hit", { query });
+      return json({ 
+        answer: cached.answer, 
+        sources: cached.sources,
+        credits_remaining: 100 // Still needs real deduction check if we want to charge for cache hits
+      }, 200, origin);
+    }
 
-    // Security: Deduct credits BEFORE processing
+    // 1. Credit Check (Initiative 1 - Data Integrity)
     const creditCheck = await deductCredits(admin, user.id, "research_query", { query: query.slice(0, 200), matter_id });
     if (!creditCheck.allowed) {
       return json({ error: creditCheck.error, credits_remaining: 0 }, 402, origin);
     }
-    const userDocs: Array<{ name: string; text: string }> = Array.isArray(userContext)
-      ? userContext
-          .filter((d: unknown) => d && typeof d.text === "string" && d.text.trim().length > 0)
-          .slice(0, 6)
-          .map((d: unknown) => ({ name: String(d.name ?? "User document").slice(0, 120), text: String(d.text).slice(0, 12000) }))
-      : [];
 
+    // 2. Generate Query Embedding
     const queryEmbedding = await embed(GOOGLE_AI_API_KEY, query) ?? new Array(1536).fill(0);
 
-    // ---------- 1. Parallel retrieval: Internal + Kanoon + Supermemory ----------
-    const [internalRes, ikDocs, smContext] = await Promise.all([
-      admin.rpc("search_judgments", {
-        query_text: query,
-        query_embedding: `[${queryEmbedding.join(",")}]`,
-        match_count: 6,
-      }),
-      ikSearch(query, 6),
-      orgId ? getSupermemoryContext(orgId, query) : Promise.resolve({}),
-    ]);
+    // 3. Multi-Layer Hybrid Search (RRF on Chunks)
+    const { data: chunks, error: searchErr } = await admin.rpc("hybrid_legal_search", {
+      query_text: query,
+      query_embedding: `[${queryEmbedding.join(",")}]`,
+      match_count: 12,
+      filter_court: filters.court || null,
+      filter_year_start: filters.yearStart || null,
+      filter_year_end: filters.yearEnd || null
+    });
 
-    if (internalRes.error) console.error("search error", internalRes.error);
-    let internal = internalRes.data ?? [];
-
-    // Expand query if internal corpus is sparse
-    if (internal.length < 3) {
-      const expanded = await expandLegalQuery(query);
-      const { data: more } = await admin.rpc("search_judgments", {
-        query_text: expanded,
-        query_embedding: `[${queryEmbedding.join(",")}]`,
-        match_count: 6,
-      });
-      const seen = new Set(internal.map((c: unknown) => c.id));
-      for (const c of more ?? []) if (!seen.has(c.id)) internal.push(c);
-      internal = internal.slice(0, 6);
+    if (searchErr) {
+      logError("Hybrid search failed", searchErr);
+      return json({ error: "Search execution failed" }, 500, origin);
     }
 
-    // ---------- 2. Build unified, ranked precedent list ----------
-    type Source = {
-      n: number;
-      kind: "internal" | "kanoon";
-      id: string;
-      title: string;
-      citation?: string | null;
-      neutral_citation?: string | null;
-      court?: string | null;
-      bench?: string | null;
-      judges?: string[] | null;
-      decision_date?: string | null;
-      headnote?: string | null;
-      summary?: string | null;
-      url?: string | null;
-      cited_by?: number | null;
-      similarity?: number | null;
-      rank_score?: number;
-    };
+    // 4. Context Construction
+    const groundedContext = buildLegalContext(chunks);
 
-    const sources: Source[] = [];
-    let n = 1;
-
-    // Score internal: weight = similarity * 1.0 + recency bonus
-    for (const c of internal) {
-      const sim = Number(c.similarity ?? 0);
-      const rk = Number(c.rank ?? 0);
-      sources.push({
-        n: n++,
-        kind: "internal",
-        id: c.id,
-        title: c.title,
-        citation: c.citation,
-        neutral_citation: c.neutral_citation,
-        court: c.court,
-        bench: c.bench,
-        judges: c.judges,
-        decision_date: c.decision_date,
-        headnote: c.headnote,
-        summary: c.summary,
-        similarity: sim,
-        rank_score: 1.0 + sim * 0.6 + rk * 0.4, // internal corpus gets a base authority boost
-      });
-    }
-
-    // De-dupe Kanoon vs internal by title similarity
-    const internalTitles = new Set(internal.map((c: unknown) => (c.title ?? "").toLowerCase().slice(0, 60)));
-    for (const d of ikDocs) {
-      const key = d.title.toLowerCase().slice(0, 60);
-      if (internalTitles.has(key)) continue;
-      const cited = Number(d.cited_by || 0);
-      sources.push({
-        n: n++,
-        kind: "kanoon",
-        id: String(d.tid),
-        title: d.title,
-        citation: null,
-        neutral_citation: null,
-        court: d.source,
-        bench: null,
-        judges: null,
-        decision_date: d.date,
-        headnote: d.headline,
-        summary: null,
-        url: d.url,
-        cited_by: cited,
-        rank_score: 0.7 + Math.log10(1 + cited) * 0.15, // log-scale citation authority
-      });
-    }
-
-    // Sort by combined precedent score, renumber
-    sources.sort((a, b) => (b.rank_score ?? 0) - (a.rank_score ?? 0));
-    sources.forEach((s, i) => { s.n = i + 1; });
-    const ranked = sources.slice(0, 8);
-
-    // ---------- 3. Fallback to live web if everything is empty ----------
-    if (ranked.length === 0) {
-      const webCases = await searchSupremeCourtWeb(query);
-      if (webCases.length === 0) {
-        return json({
-          answer: "I searched the Supreme Court corpus, Indian Kanoon, and live legal sources but could not identify a reliable match. Try adding a statute name, section number, doctrine, or one known case name.",
-          citations: [],
-        }, 200, origin);
-      }
-      const webContext = webCases.map((c: unknown, i: number) => `[${i + 1}] ${c.title ?? "Result"}\nURL: ${c.url}\nExcerpt: ${c.content ?? ""}`).join("\n\n---\n\n");
-      let wj: unknown;
-      try {
-        wj = await chatCompletion(GOOGLE_AI_API_KEY, {
-          model: MODELS.FLASH,
-          messages: [
-            { role: "system", content: "You are Weybre AI, a legal research assistant for Indian lawyers. Answer from live legal search results only with [n] citations. Never invent cases." },
-            { role: "user", content: `QUESTION: ${query}\n\nLIVE RESULTS:\n\n${webContext}` },
-          ],
-        });
-      } catch (aiErr: unknown) {
-        return json({ error: aiErr.message ?? "AI synthesis failed" }, aiErr.status ?? 500, origin);
-      }
-      return json({
-        answer: wj.choices?.[0]?.message?.content ?? "No answer generated.",
-        citations: webCases.map((c: unknown, i: number) => {
-          let court = "";
-          try { court = new URL(c.url).hostname.replace(/^www\./, ""); } catch { /* ignore */ }
-          return {
-            n: i + 1, kind: "web", id: c.url, title: c.title ?? "Live source",
-            court, headnote: c.content ?? null, url: c.url,
-          };
-        }),
-      }, 200, origin);
-    }
-
-    // ---------- 4. Build grounded structured prompt ----------
-    const context = ranked.map((s) => {
-      const cite = s.neutral_citation || s.citation || (s.kind === "kanoon" ? `Indian Kanoon doc ${s.id}` : `Case ${s.n}`);
-      const meta = [s.court, s.bench, s.decision_date].filter(Boolean).join(" | ");
-      const authority = s.kind === "internal" ? "SC Corpus" : `Indian Kanoon${s.cited_by ? ` (cited ${s.cited_by}×)` : ""}`;
-      return `[${s.n}] ${s.title}
-Citation: ${cite}
-Source authority: ${authority} | ${meta || "—"}
-${s.headnote ? `Excerpt: ${s.headnote.slice(0, 1500)}` : ""}
-${s.summary ? `Summary: ${s.summary.slice(0, 600)}` : ""}`;
-    }).join("\n\n---\n\n");
-
-    // Format Supermemory context
-    const smProfile = smContext.profile
-      ? `USER PROFILE & PREFERENCES:\n${smContext.profile.static.join("\n")}\n${smContext.profile.dynamic.join("\n")}`
-      : "";
-    const smMemories = smContext.searchResults?.results.length
-      ? `PAST FIRM KNOWLEDGE / RELEVANT MEMORIES:\n${smContext.searchResults.results.map((r) => r.memory || r.chunk).join("\n---\n")}`
-      : "";
-
-    const systemPrompt = `You are Weybre AI, an Indian legal research engine. Synthesise grounded answers from CONTEXT (Supreme Court of India corpus + Indian Kanoon precedents) for practising advocates.
-
-Write like a senior advocate briefing a colleague — clear prose, minimal scaffolding.
-
-Format rules (important):
-- Plain prose paragraphs by default. No headings, no bold, no horizontal rules, no decorative markdown.
-- Use a short bullet list ONLY when listing 3+ discrete precedents or steps. Otherwise write paragraphs.
-- Never use ##, ###, **bold**, *** or emoji.
-- Inline [n] citations for every legal proposition, matching CONTEXT numbering.
-
-Content:
-- Open with a 2-3 sentence direct answer.
-- Then a paragraph on the governing principles / sections / articles.
-- Then the strongest precedents — ranked authority first (Constitution Bench > larger bench > recent SC > HC), each in one tight sentence with [n] and how it applies.
-- Briefly quote or paraphrase the 1-3 most useful passages, tagged [n], ≤ 40 words each.
-- Close with caveats (distinguishing facts, amendments, jurisdiction).
-
-Hard rules:
-- Never invent cases, citations or sections not in CONTEXT. If CONTEXT doesn't answer, say so plainly.
-- Indian legal vocabulary (Section, Article, lakh, Hon'ble, ratio, obiter).
-- Don't give legal advice; frame as "the Supreme Court has held…".
-- Total length ≤ 450 words.`;
-
-    const userDocsBlock = userDocs.length
-      ? `\n\nUSER-PROVIDED DOCUMENTS (treat as the user's own facts/briefs/exhibits — anchor analysis to these and cite as [U1], [U2]…):\n\n${userDocs.map((d, i) => `[U${i + 1}] ${d.name}\n${d.text}`).join("\n\n---\n\n")}\n`
-      : "";
-
-    const smBlock = (smProfile || smMemories)
-      ? `\n\nFIRM MEMORY & USER CONTEXT (use this to tailor the answer to the lawyer's preferences or previous firm research, but prioritize the official CONTEXT for legal authority):\n${smProfile}\n${smMemories}\n`
-      : "";
-
-    const userPrompt = `QUESTION: ${query}${userDocsBlock}${smBlock}\n\nCONTEXT (ranked Indian precedents):\n\n${context}\n\nWhen user documents are provided, frame the answer around their facts, then map the precedents to those facts. Use [n] for precedents and [U#] for user documents.`;
-
-    // ---------- 5. Synthesize ----------
-    let j: unknown;
+    // 5. Grounded AI Synthesis
+    let aiRes: any;
     try {
-      j = await chatCompletion(GOOGLE_AI_API_KEY, {
-        model: MODELS.FLASH,
+      aiRes = await chatCompletion(GOOGLE_AI_API_KEY, {
+        model: MODELS.PRO,
         messages: [
-          { role: "system", content: systemPrompt },
-          { role: "user", content: userPrompt },
+          { role: "system", content: LEGAL_RAG_PROMPT },
+          { role: "user", content: `QUESTION: ${query}\n\nCONTEXT:\n${groundedContext}` },
         ],
       });
-    } catch (aiErr: unknown) {
-      return json({ error: aiErr.message ?? "AI synthesis failed" }, aiErr.status ?? 500, origin);
-    }
-    const answer = j.choices?.[0]?.message?.content ?? "No answer generated.";
-
-    const citations = ranked.map((s) => ({
-      n: s.n,
-      kind: s.kind,
-      id: s.id,
-      title: s.title,
-      citation: s.neutral_citation || s.citation,
-      court: s.court,
-      decision_date: s.decision_date,
-      bench: s.bench,
-      judges: s.judges,
-      headnote: s.headnote,
-      summary: s.summary,
-      url: s.url,
-      cited_by: s.cited_by ?? null,
-      similarity: s.similarity ?? null,
-    }));
-
-    // Store the interaction in Supermemory (fire-and-forget)
-    if (orgId) {
-      addSupermemory(orgId, user.id, `User query: ${query}\nWeybre AI Answer: ${answer.slice(0, 1000)}`).catch(console.error);
+    } catch (e: any) {
+      logError("AI synthesis failed", e);
+      return json({ error: "Answer generation failed" }, 500, origin);
     }
 
+    const answer = aiRes.choices?.[0]?.message?.content ?? "No answer generated.";
+
+    // 6. Save to Cache
+    await admin.from("rag_cache").insert({
+      query_hash: queryHash,
+      answer,
+      sources: chunks
+    });
+
+    // 7. Usage & Audit
     await admin.from("usage_events").insert({
       user_id: user.id,
       event_type: "research_query",
-      tokens: j.usage?.total_tokens ?? 0,
-      metadata: { query, matter_id, internal: internal.length, kanoon: ikDocs.length, ranked: ranked.length, user_docs: userDocs.length },
+      tokens: aiRes.usage?.total_tokens ?? 0,
+      metadata: { query, matter_id, chunk_count: chunks?.length || 0 },
     });
 
-    // Audit data access (best-effort, scoped to user's first org if any)
-    try {
-      if (orgId) {
-        await admin.from("audit_logs").insert({
-          organization_id: orgId,
-          actor_user_id: user.id,
-          actor_email: user.email,
-          action: "data.research_query",
-          resource_type: "research",
-          metadata: { query: String(query).slice(0, 500), matter_id: matter_id ?? null, results: ranked.length },
-        });
-      }
-    } catch (e) { console.error("audit research error", e); }
+    return json({ 
+      answer, 
+      sources: chunks,
+      credits_remaining: creditCheck.remaining
+    }, 200, origin);
 
-    return json({ answer, citations, credits_remaining: creditCheck.remaining }, 200, origin);
   } catch (e) {
-    console.error("research error", e);
+    logError("research error", e);
     return json({ error: e instanceof Error ? e.message : "Unknown error" }, 500, origin);
   }
-});
-
+}));

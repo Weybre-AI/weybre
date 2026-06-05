@@ -1,3 +1,5 @@
+import { wrapHandler } from "../_shared/response.ts";
+import { logInfo, logError } from "../_shared/logger.ts";
 // deploy: 20260522151723
 // Draft edge function: chat-driven contract/document generation
 // with risk flags, grounded in Indian SC judgments where applicable.
@@ -56,8 +58,7 @@ async function getAttachmentContext(admin: ReturnType<typeof createClient>, draf
   return parts.join("\n\n---\n\n");
 }
 
-Deno.serve(async (req) => {
-  const origin = req.headers.get("origin") ?? "";
+Deno.serve(wrapHandler(async (req, origin, requestId) => {
   if (req.method === "OPTIONS") return handleOptions(origin);
 
   try {
@@ -116,7 +117,15 @@ Deno.serve(async (req) => {
       `- ${c.title} (${c.neutral_citation || c.citation || "—"}): ${(c.headnote ?? c.summary ?? "").slice(0, 400)}`
     ).join("\n");
 
-    const systemPrompt = `You are Weybre AI, an Indian legal drafting assistant. Generate professional, courtroom-ready drafts for Indian lawyers.
+    const systemPrompt = `You are Weybre AI, a professional drafting co-counsel for Indian lawyers. 
+Generate courtroom-ready, high-fidelity legal drafts with strict adherence to drafting conventions.
+
+DRAFTING CONVENTIONS:
+1. VOICE: Active voice, present tense. Senior associate persona.
+2. OBLIGATIONS: Use "will" for obligations and "must" for conditions. AVOID "shall" (it is archaic and ambiguous).
+3. STRUCTURE: Hierarchical numbering (Article 1 > Section 1.1 > Subsection 1.1(a)).
+4. STYLE: No legalese where plain English suffices. One idea per sentence.
+5. VOCABULARY: Section, Article, lakh, Hon'ble, ratio, obiter.
 
 TEMPLATE: ${template}
 GUIDE: ${TEMPLATE_GUIDES[template]}
@@ -124,17 +133,10 @@ GUIDE: ${TEMPLATE_GUIDES[template]}
 RELEVANT SUPREME COURT PRECEDENTS (use to inform risk flags):
 ${groundContext || "(none retrieved)"}
 
-UPLOADED SOURCE DOCUMENTS (use first when drafting/reviewing; cite filename in suggestions):
+UPLOADED SOURCE DOCUMENTS:
 ${attachmentContext || "(none uploaded)"}
 
-RULES:
-1. Generate the FULL document in plain text with proper Indian legal formatting (numbered clauses, ALL CAPS for headings, "WHEREAS" recitals where appropriate).
-2. Use Indian Rupees (₹), Indian dates (DD-MM-YYYY), Indian addresses, GST where relevant.
-3. If the user has not provided enough information, ask 1-3 specific follow-up questions in your reply, but STILL generate a best-effort draft with [PLACEHOLDER] markers.
-4. Identify risk_flags for clauses that could be unenforceable, ambiguous, or carry liability — especially under Section 27 ICA (restraint of trade), Section 23 ICA (public policy), DPDP Act 2023, Stamp Act requirements, registration requirements.
-5. When uploaded documents are present, act as a document review assistant too: summarize the document, identify missing clauses, risky language, inconsistencies, enforceability problems, and propose precise replacement wording. Do not invent terms that are not in the uploaded text.
-
-Return ONLY a JSON object via the function tool, no prose.`;
+Return ONLY a JSON object via the function tool. No prose.`;
 
     let j: unknown;
     try {
@@ -182,15 +184,35 @@ Return ONLY a JSON object via the function tool, no prose.`;
     const toolCall = j.choices?.[0]?.message?.tool_calls?.[0];
     if (!toolCall) return json({ error: "No draft produced" }, 500, origin);
 
-    let parsed: { reply: string; content: string; risk_flags: unknown[] };
+    let parsed: { reply: string; content: string; risk_flags: any[] };
     try { parsed = JSON.parse(toolCall.function.arguments); }
     catch { return json({ error: "Invalid AI output" }, 500, origin); }
+
+    // ---------- Persistence: Versioning & History ----------
+    const updatedConversation = [...conversation, { role: "assistant" as const, content: parsed.reply }];
+
+    // 1. Update main draft record
+    await admin.from("drafts").update({
+      content: parsed.content,
+      risk_flags: parsed.risk_flags,
+      conversation: updatedConversation,
+      updated_at: new Date().toISOString()
+    }).eq("id", draft_id);
+
+    // 2. Create immutable version snapshot
+    await admin.from("draft_versions").insert({
+      draft_id,
+      user_id: user.id,
+      content: parsed.content,
+      change_summary: (conversation[conversation.length - 1] as any)?.content?.slice(0, 200) || "Iterative refinement",
+      metadata: { risk_count: parsed.risk_flags.length }
+    });
 
     await admin.from("usage_events").insert({
       user_id: user.id,
       event_type: "draft_generation",
       tokens: j.usage?.total_tokens ?? 0,
-      metadata: { template, title },
+      metadata: { template, title, versioning: true },
     });
 
     try {
@@ -206,11 +228,11 @@ Return ONLY a JSON object via the function tool, no prose.`;
           metadata: { template, title },
         });
       }
-    } catch (e) { console.error("audit draft error", e); }
+    } catch (e) { logError("audit draft error", e); }
 
     return json(parsed, 200, origin);
   } catch (e) {
-    console.error("draft error", e);
+    logError("draft error", e);
     return json({ error: e instanceof Error ? e.message : "Unknown error" }, 500, origin);
   }
-});
+}));

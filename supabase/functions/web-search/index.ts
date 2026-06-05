@@ -1,3 +1,5 @@
+import { wrapHandler } from "../_shared/response.ts";
+import { logInfo, logError } from "../_shared/logger.ts";
 // deploy: 20260523120000
 // Weybre AI — production web research with real Tavily search results + cited AI synthesis.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
@@ -28,8 +30,7 @@ interface TavilyResult {
   raw_content?: string | null;
 }
 
-Deno.serve(async (req) => {
-  const origin = req.headers.get("origin") ?? "";
+Deno.serve(wrapHandler(async (req, origin, requestId) => {
   if (req.method === "OPTIONS") return handleOptions(origin);
 
   try {
@@ -93,7 +94,7 @@ Deno.serve(async (req) => {
     if (search.status === 429) return json({ error: "Tavily rate limit reached. Please try again shortly." }, 429, origin);
     if (!search.ok) {
       const t = await search.text();
-      console.error("Tavily error", search.status, t);
+      logError("Tavily error", search.status, t);
       return json({ error: "Live search failed" }, 502, origin);
     }
 
@@ -159,7 +160,7 @@ Hard rules: never invent facts, statutes or case names. Prefer authoritative Ind
 
     return json({ answer, sources }, 200, origin);
   } catch (e) {
-    console.error("web-search error", e);
+    logError("web-search error", e);
     return json({ error: e instanceof Error ? e.message : "Unknown error" }, 500, origin);
   }
-});
+}));

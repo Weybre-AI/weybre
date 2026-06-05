@@ -11,6 +11,9 @@
  *   text-embedding-004     — 768-dim embeddings (we pad to 1536 for schema compat)
  */
 
+import { logInfo, logError } from "./logger.ts";
+import { redactPII } from "./pii.ts";
+
 const GOOGLE_AI_BASE = "https://generativelanguage.googleapis.com/v1beta/openai";
 
 export const MODELS = {
@@ -29,10 +32,11 @@ export async function validateModels(apiKey: string) {
       messages: [{ role: "user", content: "ping" }],
       max_tokens: 5
     });
+    // @ts-ignore dynamic access
     if (!res || res.error) throw new Error("Invalid model response");
-    console.log("Model validation successful.");
+    logInfo("Model validation successful.");
   } catch (e) {
-    console.error("Model validation failed:", e);
+    logError("Model validation failed:", e);
     throw new Error("Invalid model configuration or API key.");
   }
 }
@@ -54,6 +58,25 @@ export interface ChatOptions {
  * Returns the raw response JSON — callers read choices[0].message.content.
  */
 export async function chatCompletion(apiKey: string, opts: ChatOptions): Promise<unknown> {
+  // Redact PII from all text content before sending to external API
+  const sanitizedMessages = opts.messages.map((m) => {
+    if (typeof m.content === "string") {
+      return { ...m, content: redactPII(m.content) };
+    }
+    if (Array.isArray(m.content)) {
+      return {
+        ...m,
+        // @ts-ignore dynamic part
+        content: m.content.map((part) =>
+          part.type === "text" && typeof part.text === "string"
+            ? { ...part, text: redactPII(part.text) }
+            : part
+        ),
+      };
+    }
+    return m;
+  });
+
   const res = await fetch(`${GOOGLE_AI_BASE}/chat/completions`, {
     method: "POST",
     headers: {
@@ -62,7 +85,7 @@ export async function chatCompletion(apiKey: string, opts: ChatOptions): Promise
     },
     body: JSON.stringify({
       model: opts.model ?? MODELS.FLASH,
-      messages: opts.messages,
+      messages: sanitizedMessages,
       ...(opts.tools        ? { tools: opts.tools }               : {}),
       ...(opts.tool_choice  ? { tool_choice: opts.tool_choice }   : {}),
       ...(opts.response_format ? { response_format: opts.response_format } : {}),
@@ -75,7 +98,7 @@ export async function chatCompletion(apiKey: string, opts: ChatOptions): Promise
   if (res.status === 402) throw Object.assign(new Error("AI quota exhausted. Check your Google AI Studio usage."), { status: 402 });
   if (!res.ok) {
     const body = await res.text();
-    console.error("Google AI error", res.status, body.slice(0, 500));
+    logError("Google AI error", res.status, { body: body.slice(0, 500) });
     throw Object.assign(new Error(`Google AI error ${res.status}`), { status: res.status });
   }
 
@@ -100,7 +123,7 @@ export async function embed(apiKey: string, text: string): Promise<number[] | nu
   });
 
   if (!res.ok) {
-    console.error("embed error", res.status, await res.text());
+    logError("embed error", res.status, { text: await res.text() });
     return null;
   }
 

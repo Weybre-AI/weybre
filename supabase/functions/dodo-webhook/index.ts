@@ -1,3 +1,5 @@
+import { wrapHandler } from "../_shared/response.ts";
+import { logInfo, logError } from "../_shared/logger.ts";
 // deploy: 20260522151723
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { encodeBase64 } from "https://deno.land/std@0.224.0/encoding/base64.ts";
@@ -45,7 +47,7 @@ async function verifyStandardWebhook(
   return signatureHeader.split(" ").some((p) => p.split(",")[1] === expected);
 }
 
-Deno.serve(async (req) => {
+Deno.serve(wrapHandler(async (req, origin, requestId) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
   try {
     if (!DODO_WEBHOOK_KEY) return json({ error: "Webhook key not configured" }, 500);
@@ -136,10 +138,10 @@ Deno.serve(async (req) => {
 
     return json({ ok: true });
   } catch (e) {
-    console.error("dodo-webhook error", e);
+    logError("dodo-webhook error", e);
     return json({ error: e instanceof Error ? e.message : "Webhook failed" }, 500);
   }
-});
+}));
 
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {

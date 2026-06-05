@@ -38,6 +38,7 @@ interface Draft {
   template: string;
   content: string;
   risk_flags: Risk[];
+  conversation: { role: "user" | "assistant"; content: string }[];
   inputs: {
     case_context?: {
       brief?: string;
@@ -77,6 +78,7 @@ const DraftEditor = () => {
       const { data } = await supabase.from("drafts").select("*").eq("id", id).maybeSingle();
       setDraft(data as Draft | null);
       setRisks((data?.risk_flags as Risk[] ?? []));
+      setChat((data?.conversation as any[] ?? []));
 
       // If created from a Litigation Intel result, pre-seed the chat with a draft prompt
       const ctx = data?.inputs?.case_context;
@@ -116,8 +118,10 @@ const DraftEditor = () => {
   const generate = async () => {
     if (!input.trim() || !draft) return;
     const userMsg = input.trim();
+    const newChat = [...chat, { role: "user" as const, content: userMsg }];
+    
     setInput("");
-    setChat(c => [...c, { role: "user", content: userMsg }]);
+    setChat(newChat);
     setGenerating(true);
 
     try {
@@ -126,7 +130,7 @@ const DraftEditor = () => {
           draft_id: id,
           template: draft.template,
           title: draft.title,
-          conversation: [...chat, { role: "user", content: userMsg }],
+          conversation: newChat,
           existing_content: draft.content,
         },
       });
@@ -136,15 +140,17 @@ const DraftEditor = () => {
       const reply = data.reply ?? "";
       const newContent = data.content ?? draft.content;
       const newRisks: Risk[] = data.risk_flags ?? [];
+      const updatedChat = [...newChat, { role: "assistant" as const, content: reply }];
 
-      setChat(c => [...c, { role: "assistant", content: reply }]);
+      setChat(updatedChat);
       setDraft((d) => (d ? { ...d, content: newContent } : null));
       setRisks(newRisks);
 
       await supabase.from("drafts").update({
         content: newContent,
         risk_flags: newRisks,
-        inputs: { last_prompt: userMsg },
+        conversation: updatedChat,
+        inputs: { ...(draft.inputs ?? {}), last_prompt: userMsg },
       }).eq("id", id!);
     } catch (err) {
       toast.error("Drafting failed", { description: (err as Error)?.message });

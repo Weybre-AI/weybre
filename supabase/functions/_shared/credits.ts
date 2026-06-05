@@ -4,6 +4,7 @@
  */
 
 import { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
+import { logError } from "./logger.ts";
 
 export interface CreditCheckResult {
   allowed: boolean;
@@ -29,7 +30,7 @@ export async function deductCredits(
     });
 
     if (error) {
-      console.error("deduct_credits error:", error);
+      logError("deduct_credits error:", error);
       const hint =
         error.code === "42501" || error.message?.includes("permission")
           ? "Credit system misconfigured (missing DB grants). Contact support."
@@ -56,7 +57,7 @@ export async function deductCredits(
       remaining,
     };
   } catch (e) {
-    console.error("deductCredits exception:", e);
+    logError("deductCredits exception:", e);
     return {
       allowed: false,
       remaining: 0,

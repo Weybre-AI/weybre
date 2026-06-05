@@ -1,3 +1,5 @@
+import { wrapHandler } from "../_shared/response.ts";
+import { logInfo, logError } from "../_shared/logger.ts";
 // deploy: 20260523160000
 // Multilingual OCR via Gemini vision
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
@@ -21,8 +23,7 @@ function normalizeImage(s: string): { mime: string; data: string } | null {
   return { mime: "image/png", data: s };
 }
 
-Deno.serve(async (req) => {
-  const origin = req.headers.get("origin") ?? "";
+Deno.serve(wrapHandler(async (req, origin, requestId) => {
   if (req.method === "OPTIONS") return handleOptions(origin);
 
   try {
@@ -83,7 +84,7 @@ Deno.serve(async (req) => {
 
     return json({ text, pages: images.length, tokens: parsed.usage?.total_tokens ?? 0, credits_remaining: creditCheck.remaining }, 200, origin);
   } catch (e) {
-    console.error("vision-ocr error", e);
+    logError("vision-ocr error", e);
     return json({ error: e instanceof Error ? e.message : "Unknown error" }, 500, origin);
   }
-});
+}));
